@@ -11,7 +11,6 @@ class Repo:
 
 @dataclass
 class Project:
-    name: str
     repos: dict[str, Repo]
     context: str = ""    # notes for the planner (context.md)
 
@@ -25,13 +24,14 @@ class Task:
 
 
 @dataclass
-class Decision:          # one line of the shadow log: the code rule vs Jev
+class Decision:          # one line of the Jev log: the code rule, Jev, and what really happened
     task: int            # task number, from 1
     attempt: int
     checks_ok: bool
     review_ok: bool
     code: str            # what the code rule decided: accept | fix | escalate
-    jev: str | None = None             # what Jev would do: accept | fix | replan | escalate
+    final: str           # what really happened: accept | fix | escalate (same as code in shadow mode)
+    jev: str | None = None             # what Jev would do: accept | fix | escalate
     jev_confidence: float | None = None
 
 
@@ -41,7 +41,8 @@ class State:
     project: str
     ticket_title: str
     ticket_body: str
-    branch: str                        # ease/<slug>
+    branch: str                        # ease-feature/<slug>
+    jev_mode: str = "shadow"           # shadow | live, copied from config.json when the run starts
     step: str = "plan"                 # plan | approve | build | review | done
     notes: str = ""                    # your change notes for the planner
     plan_summary: str = ""

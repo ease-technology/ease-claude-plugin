@@ -59,10 +59,10 @@ def test_judge_task_rotates_by_decisions_so_far(monkeypatch):
     state = make_state()
 
     assert jev.judge_task("key", state, []) == ("fix", 0.7)
-    state.log.append(Decision(task=1, attempt=1, checks_ok=True, review_ok=True, code="accept"))
+    state.log.append(Decision(task=1, attempt=1, checks_ok=True, review_ok=True, code="accept", final="accept"))
     jev.judge_task("key", state, [])
 
     first = list(calls[0]["questions"]["next_action"]["criteria"])
     second = list(calls[1]["questions"]["next_action"]["criteria"])
-    assert first == ["accept", "fix", "replan", "escalate"]
-    assert second == ["fix", "replan", "escalate", "accept"]
+    assert first == ["accept", "fix", "escalate"]
+    assert second == ["fix", "escalate", "accept"]

@@ -1,5 +1,4 @@
 """Run commands, plus small git and gh helpers."""
-import json
 import os
 import subprocess
 
@@ -41,9 +40,14 @@ def head(cwd) -> str:
     return git(cwd, "rev-parse", "HEAD")
 
 
+def current_branch(cwd) -> str:
+    """The branch we are on. A detached HEAD gives "HEAD"."""
+    return git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+
+
 def switch_to_branch(cwd, branch: str) -> str:
     """Create `branch` and switch to it (fails if it exists). Returns the branch we were on."""
-    base = git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    base = current_branch(cwd)
     git(cwd, "switch", "-c", branch)
     return base
 
@@ -84,8 +88,3 @@ def open_pr(cwd, branch: str, base: str, title: str, body: str) -> str:
     urls = [line for line in lines if line.startswith("https://")]  # gh may add warnings after the URL
     return (urls or lines)[-1]
 
-
-def fetch_issue(cwd, number: str) -> tuple[str, str]:
-    """Read a GitHub issue. Returns (title, body)."""
-    issue = json.loads(must(["gh", "issue", "view", number, "--json", "title,body"], cwd))
-    return issue["title"], issue["body"] or ""

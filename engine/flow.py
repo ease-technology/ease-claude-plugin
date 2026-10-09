@@ -5,7 +5,7 @@ from pathlib import Path
 from engine import jev
 from engine.models import Decision, Project, Repo, State, Task
 from engine.shell import (
-    commit_all, commits_ahead, fetch_issue, has_remote, head,
+    commit_all, commits_ahead, current_branch, has_remote, head,
     is_dirty, open_pr, run_checks, switch_to_branch,
 )
 from engine.workspace import EaseError, load_config, load_project, new_state, run_dir, save_state
@@ -22,22 +22,22 @@ REVIEW_SHAPE = """```json
 
 def start(ws, project_name: str | None, text: str) -> dict:
     """Begin a run. With no project name, use default_project from config.json."""
-    project_name = project_name or load_config(ws).get("default_project")
+    config = load_config(ws)
+    project_name = project_name or config.get("default_project")
     if not project_name:
         raise EaseError("no project given and no default_project in config.json")
-    project = load_project(ws, project_name)  # fails early if the project is unknown or bad
+    load_project(ws, project_name)  # fails early if the project is unknown or bad
+    jev_mode = config.get("jev_mode", "shadow")
+    if jev_mode not in ("shadow", "live"):
+        raise EaseError('jev_mode must be "shadow" or "live"')
 
     text = text.strip()
     if not text:
         raise EaseError("no ticket given")
-    if text.isdigit():  # just a number: a GitHub issue
-        first_repo = next(iter(project.repos.values()))
-        title, body = fetch_issue(first_repo.path, text)
-        title = f"#{text} {title}"
-    else:
-        title, body = text.splitlines()[0][:80], text
+    title = text.splitlines()[0][:80]  # the ticket's first line
 
-    state = new_state(project_name, title, body)
+    state = new_state(project_name, title, text)
+    state.jev_mode = jev_mode  # the run keeps this mode, even if config.json changes later
     save_state(ws, state)
     return {"run_id": state.run_id}
 
@@ -133,6 +133,13 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
                 raise EaseError(f"{path} is not the top folder of a git repo")
             if is_dirty(path):
                 raise EaseError(f"{path} has uncommitted changes. Commit or stash them, then approve again.")
+            branch = current_branch(path)
+            if branch == "HEAD" or branch.startswith("ease-feature/"):  # an old run's branch, or no branch at all
+                where = "a detached HEAD" if branch == "HEAD" else branch
+                raise EaseError(
+                    f"{path} is on {where}. Check out the branch you want the work based on (like develop), "
+                    "then approve again."
+                )
         for repo in repos:
             if repo not in state.bases:
                 state.bases[repo] = switch_to_branch(project.repos[repo].path, state.branch)
@@ -145,16 +152,16 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
 
 
 def reply_build(state: State, project: Project) -> dict:
-    """The worker's message is free text. Commit its work and run the checks."""
+    """The worker's message is free text. Run the checks, then commit everything (even if they fail)."""
     task, repo = current_task(state, project)
-    commit_all(repo.path, f"ease: {task.title}")
     state.checks_ok, state.checks_output = run_checks(repo.path, repo.checks)
+    commit_all(repo.path, f"ease: {task.title}")  # after the checks, so it has what they changed
     state.step = "review"
     return {"ok": True}
 
 
 def reply_review(ws, state: State, project: Project, text: str) -> dict:
-    """Decide with the code rule, ask Jev too (logged only), then go to the next step."""
+    """Decide with the code rule and ask Jev too. In live mode Jev's answer counts, inside guardrails."""
     report = parse_report(text)
     if report.get("verdict") not in ("pass", "fail"):
         raise EaseError('reviewer report: verdict must be "pass" or "fail"')
@@ -163,19 +170,25 @@ def reply_review(ws, state: State, project: Project, text: str) -> dict:
     if not review_ok and not findings:
         raise EaseError("reviewer report: a fail needs at least one finding")
 
-    decision = code_rule(state.checks_ok, review_ok, state.attempt)
+    code = code_rule(state.checks_ok, review_ok, state.attempt)
     key = load_config(ws).get("typesafe_api_key")
-    jev_choice, jev_confidence = jev.judge_task(key, state, findings)  # shadow: logged, never used
-    reviewed = state.task + 1
-    state.log.append(Decision(
-        task=reviewed, attempt=state.attempt, checks_ok=state.checks_ok, review_ok=review_ok,
-        code=decision, jev=jev_choice, jev_confidence=jev_confidence,
-    ))
+    jev_choice, jev_confidence = jev.judge_task(key, state, findings)
     # What went wrong: for the worker's next attempt (fix), or for you (escalate).
     checks_problem = [] if state.checks_ok else ["Checks failed:\n" + state.checks_output]
     state.problems = checks_problem + findings
 
-    if decision == "accept":
+    final = code  # shadow: Jev is only logged
+    if state.jev_mode == "live":
+        final = live_rule(code, jev_choice, jev_confidence, state.attempt, state.problems)
+        if final == "escalate" and code != "escalate":  # the summary would have no reason otherwise
+            state.problems.insert(0, f"Jev chose to escalate (confidence {jev_confidence:.2f}).")
+    reviewed = state.task + 1
+    state.log.append(Decision(
+        task=reviewed, attempt=state.attempt, checks_ok=state.checks_ok, review_ok=review_ok,
+        code=code, final=final, jev=jev_choice, jev_confidence=jev_confidence,
+    ))
+
+    if final == "accept":
         if reviewed < len(state.tasks):
             state.task = reviewed
             state.attempt = 1
@@ -184,7 +197,7 @@ def reply_review(ws, state: State, project: Project, text: str) -> dict:
             state.step = "build"
         else:
             finish(state, project)
-    elif decision == "fix":
+    elif final == "fix":
         state.attempt += 1
         state.step = "build"
     else:  # escalate
@@ -192,7 +205,7 @@ def reply_review(ws, state: State, project: Project, text: str) -> dict:
         state.outcome = "escalated"
 
     return {
-        "ok": True, "task": reviewed, "decision": decision,
+        "ok": True, "task": reviewed, "decision": final, "code": code,
         "jev": jev_choice, "jev_confidence": jev_confidence,
     }
 
@@ -204,6 +217,17 @@ def code_rule(checks_ok: bool, review_ok: bool, attempt: int) -> str:
     if attempt >= 3:
         return "escalate"
     return "fix"
+
+
+def live_rule(code, jev, confidence, attempt, problems):
+    """Live mode: Jev decides, inside guardrails. Otherwise the code rule's decision stands."""
+    if jev is None or confidence is None or confidence < 0.5:
+        return code                     # no answer, or Jev isn't sure
+    if jev == "accept" and code != "accept":
+        return code                     # failing work is never accepted
+    if jev == "fix" and (not problems or attempt >= 3):
+        return code                     # nothing to fix, or out of attempts
+    return jev
 
 
 def finish(state: State, project: Project) -> None:
@@ -244,6 +268,7 @@ def current_task(state: State, project: Project) -> tuple[Task, Repo]:
 
 def plan_text(state: State) -> str:
     """The plan as Markdown, with Jev's score at the end."""
+    jev_label = f"Jev ({state.jev_mode})"
     lines = [state.plan_summary, ""]
     for number, task in enumerate(state.tasks, 1):
         lines.append(f"{number}. {task.title} (repo: {task.repo})")
@@ -252,9 +277,9 @@ def plan_text(state: State) -> str:
     lines.append("")
 
     if state.plan_score is None:
-        lines.append("Jev: no score (no key or no answer)")
+        lines.append(f"{jev_label}: no score (no key or no answer)")
     else:
-        line = f"Jev: plan score {state.plan_score:.1f}/{len(jev.PLAN_LEVELS)}"
+        line = f"{jev_label}: plan score {state.plan_score:.1f}/{len(jev.PLAN_LEVELS)}"
         if state.plan_confidence is not None:
             line += f" (confidence {state.plan_confidence:.2f})"
         lines.append(line)
@@ -267,10 +292,14 @@ def summary(state: State) -> str:
     decisions = [d for d in state.log if d.jev is not None]
     agreed = len([d for d in decisions if d.jev == d.code])
 
-    lines = [f"Outcome: {state.outcome}", f"Branch: {state.branch}", *state.prs]
+    lines = [f"Outcome: {state.outcome}"]
+    if state.bases:  # the branch exists only once the plan was approved
+        lines.append(f"Branch: {state.branch}")
+    lines += state.prs
     if state.outcome == "escalated":
         lines += ["Problems:", *[f"- {p}" for p in state.problems]]
     lines.append(f"Tasks done: {done}/{len(state.tasks)}")
+    lines.append(f"Jev mode: {state.jev_mode}")
     lines.append(f"Jev agreed with the code rule on {agreed} of {len(decisions)} decisions")
     return "\n".join(lines)
 

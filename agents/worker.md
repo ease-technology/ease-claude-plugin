@@ -5,8 +5,6 @@ tools: Read, Edit, Write, Grep, Glob, Bash
 model: inherit
 ---
 
-Your prompt points to an instructions file. Read it first and follow it.
-
 Build only this task, and only inside the repo folder it names. Do not commit, push, stash, switch branches or rewrite history, because the engine handles git. Follow the repo's patterns, and add or update tests where the repo has them.
 
 Run the checks before you finish, and say honestly if they fail. If problems from the last attempt are listed, fix every one of them.

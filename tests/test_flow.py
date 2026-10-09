@@ -54,12 +54,11 @@ def branch_of(path):
 
 @pytest.fixture
 def fake_gh(tmp_path_factory, monkeypatch):
-    """Put a fake `gh` first on PATH. It answers `gh issue view` and `gh pr create`."""
+    """Put a fake `gh` first on PATH. It answers `gh pr create`."""
     folder = tmp_path_factory.mktemp("bin")
     script = folder / "gh"
     script.write_text(
         "#!/bin/sh\n"
-        """if [ "$1" = issue ]; then echo '{"title": "Fix login", "body": "It breaks"}'; fi\n"""
         """if [ "$1" = pr ]; then echo "https://github.com/me/app/pull/7"; echo "Warning: 1 uncommitted change" >&2; fi\n"""
     )
     script.chmod(0o755)
@@ -72,7 +71,8 @@ def test_start_with_default_project(ws):
     assert state.project == "demo"
     assert state.ticket_title == "Add a login page"
     assert state.ticket_body == "Add a login page\n\nWith a form."
-    assert state.branch == "ease/add-a-login-page"
+    assert state.branch == "ease-feature/add-a-login-page"
+    assert state.jev_mode == "shadow"  # the default
     assert state.step == "plan"
 
 
@@ -84,13 +84,6 @@ def test_start_with_project_name(ws):
     assert state.ticket_title == "Fix the bug"
 
 
-def test_start_from_issue_number(ws, fake_gh):
-    flow.start(ws, None, "12")
-    state = load_state(ws)
-    assert state.ticket_title == "#12 Fix login"
-    assert state.ticket_body == "It breaks"
-
-
 def test_happy_path(ws):
     start_run(ws)
     assert load_state(ws).step == "approve"
@@ -99,7 +92,7 @@ def test_happy_path(ws):
 
     send(ws, "Approve.")  # the words are compared without case and end punctuation
     state = load_state(ws)
-    assert branch_of(ws / "app") == "ease/add-a-thing"
+    assert branch_of(ws / "app") == "ease-feature/add-a-thing"
     assert state.bases == {"app": "main"}
     assert ask(ws)["agent"] == "ease:worker"
 
@@ -112,7 +105,7 @@ def test_happy_path(ws):
     state = load_state(ws)
     assert state.step == "done"
     assert state.outcome == "done"
-    assert state.prs == ["app: branch ease/add-a-thing (no GitHub remote, no PR)"]
+    assert state.prs == ["app: branch ease-feature/add-a-thing (no GitHub remote, no PR)"]
     assert "Outcome: done" in ask(ws)["summary"]
 
 
@@ -129,6 +122,18 @@ def test_failed_checks_lead_to_fix(ws):
 
     ask(ws)
     assert "Checks failed" in last_prompt(ws)
+
+
+def test_changes_made_by_the_checks_are_committed_too(ws):
+    write_project(ws, "demo", {"app": {"path": "app", "checks": "test -f ok.txt && echo built > README.md"}})
+    start_building(ws)
+    (ws / "app" / "ok.txt").write_text("done")  # what the worker does
+    send(ws, "Built it.")  # the checks pass and rewrite README.md, a tracked file
+
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=ws / "app", capture_output=True, text=True)
+    assert status.stdout == ""  # nothing is left uncommitted
+    show = subprocess.run(["git", "show", "HEAD:README.md"], cwd=ws / "app", capture_output=True, text=True)
+    assert show.stdout == "built\n"  # the last commit has the checks' change
 
 
 def test_three_failed_attempts_escalate(ws):
@@ -204,10 +209,23 @@ def test_dirty_repo_blocks_approve(ws):
 
 
 def test_existing_branch_blocks_approve(ws):
-    subprocess.run(["git", "branch", "ease/add-a-thing"], cwd=ws / "app", check=True)
+    subprocess.run(["git", "branch", "ease-feature/add-a-thing"], cwd=ws / "app", check=True)
     start_run(ws)
 
     with pytest.raises(EaseError, match="already exists"):
+        send(ws, "approve")
+    assert load_state(ws).step == "approve"
+
+
+@pytest.mark.parametrize("checkout, message", [
+    (["switch", "-c", "ease-feature/old"], "is on ease-feature/old"),
+    (["checkout", "--detach"], "is on a detached HEAD"),
+])
+def test_repo_on_an_old_run_branch_or_detached_head_blocks_approve(ws, checkout, message):
+    start_run(ws)
+    subprocess.run(["git", *checkout], cwd=ws / "app", check=True, capture_output=True)
+
+    with pytest.raises(EaseError, match=message):
         send(ws, "approve")
     assert load_state(ws).step == "approve"
 
@@ -234,7 +252,7 @@ def test_jev_is_shadow_only(ws, monkeypatch):
     monkeypatch.setattr(jev, "post", fake_post)
 
     start_run(ws)
-    assert "Jev: plan score 4.2/5 (confidence 0.81)" in ask(ws)["message"]
+    assert "Jev (shadow): plan score 4.2/5 (confidence 0.81)" in ask(ws)["message"]
     send(ws, "approve")
     (ws / "app" / "ok.txt").write_text("done")
     send(ws, "Built it.")
@@ -244,8 +262,11 @@ def test_jev_is_shadow_only(ws, monkeypatch):
     assert state.outcome == "done"  # Jev said fix, but the code rule decided
     decision = state.log[-1]
     assert decision.code == "accept"
+    assert decision.final == "accept"
     assert decision.jev == "fix"
-    assert "agreed with the code rule on 0 of 1" in ask(ws)["summary"]
+    summary = ask(ws)["summary"]
+    assert "Jev mode: shadow" in summary
+    assert "agreed with the code rule on 0 of 1" in summary
 
 
 def test_two_tasks_in_two_repos(ws):
@@ -287,3 +308,78 @@ def test_pr_is_opened_when_there_is_a_remote(ws, tmp_path_factory, fake_gh):
 
     # gh prints a warning after the URL; the URL is still what we keep
     assert load_state(ws).prs == ["app: https://github.com/me/app/pull/7"]
+
+
+# ---------- live mode ----------
+
+def go_live(ws, monkeypatch, choice, confidence):
+    """Turn live mode on, with a key. Jev scores the plan 4/5 and always picks `choice`."""
+    (ws / CONTEXT_DIR / "config.json").write_text(json.dumps(
+        {"default_project": "demo", "typesafe_api_key": "secret", "jev_mode": "live"}
+    ))
+    answers = {
+        "plan_quality": {"score": 4, "confidence": 0.9},
+        "next_action": {"choice": choice, "confidence": confidence},
+    }
+    monkeypatch.setattr(jev, "post", lambda key, body: {"answers": answers})
+
+
+@pytest.mark.parametrize("code, jev_pick, confidence, attempt, problems, expected", [
+    ("accept", "fix", 0.9, 1, ["tidy up"], "fix"),            # Jev decides, even against the code rule
+    ("accept", "escalate", 0.5, 1, [], "escalate"),           # 0.5 is sure enough
+    ("fix", None, None, 1, ["bug"], "fix"),                   # no answer: the code rule stands
+    ("accept", "fix", None, 1, ["tidy up"], "accept"),        # no confidence: the code rule stands
+    ("accept", "fix", 0.4, 1, ["tidy up"], "accept"),         # Jev isn't sure: the code rule stands
+    ("fix", "accept", 0.9, 1, ["bug"], "fix"),                # failing work is never accepted
+    ("accept", "fix", 0.9, 1, [], "accept"),                  # nothing to fix: the code rule stands
+    ("accept", "fix", 0.9, 3, ["tidy up"], "accept"),         # out of attempts: the code rule stands
+    ("escalate", "fix", 0.9, 3, ["bug"], "escalate"),         # out of attempts: the code rule stands
+])
+def test_live_rule(code, jev_pick, confidence, attempt, problems, expected):
+    assert flow.live_rule(code, jev_pick, confidence, attempt, problems) == expected
+
+
+def test_live_jev_can_ask_for_a_fix_on_a_pass_with_findings(ws, monkeypatch):
+    go_live(ws, monkeypatch, "fix", 0.9)
+    start_run(ws)
+    assert "Jev (live): plan score 4.0/5" in ask(ws)["message"]
+    send(ws, "approve")
+    (ws / "app" / "ok.txt").write_text("done")  # the checks pass
+    send(ws, "Built it.")
+
+    result = send(ws, '```json\n{"verdict": "pass", "findings": ["app.py: rename x"]}\n```')
+    assert result["decision"] == "fix"
+    assert result["code"] == "accept"
+    state = load_state(ws)
+    assert state.step == "build"
+    assert state.attempt == 2
+    assert state.log[-1].code == "accept"
+    assert state.log[-1].final == "fix"
+
+    ask(ws)
+    assert "app.py: rename x" in last_prompt(ws)  # the worker is told what to fix
+
+
+def test_live_jev_can_escalate_passing_work(ws, monkeypatch):
+    go_live(ws, monkeypatch, "escalate", 0.7)
+    start_building(ws)
+    (ws / "app" / "ok.txt").write_text("done")  # the checks pass
+    send(ws, "Built it.")
+
+    result = send(ws, PASS)
+    assert result["decision"] == "escalate"
+    assert result["code"] == "accept"
+    assert load_state(ws).outcome == "escalated"
+    summary = ask(ws)["summary"]
+    assert "Jev mode: live" in summary
+    assert "- Jev chose to escalate (confidence 0.70)." in summary
+
+
+def test_bad_jev_mode_is_an_error_at_start(ws):
+    (ws / CONTEXT_DIR / "config.json").write_text(
+        json.dumps({"default_project": "demo", "jev_mode": "yolo"})
+    )
+    with pytest.raises(EaseError, match='jev_mode must be "shadow" or "live"'):
+        flow.start(ws, None, "Add a thing")
+    with pytest.raises(EaseError, match="no runs yet"):  # nothing was started
+        load_state(ws)

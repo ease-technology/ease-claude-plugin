@@ -11,7 +11,11 @@ Write the full engine command in every Bash call, because shell variables do not
 
 ## Start
 
-`/ease:build [project] <ticket>` runs `start`. Pass the project as an argument if the user named one (projects are the folders in `.ease-context/projects/`); without one, the engine uses `default_project`. Send the ticket through a quoted heredoc, so nothing in it is expanded:
+`/ease:build [project] <ticket>` runs `start`. Pass the project as an argument if the user named one (projects are the folders in `.ease-context/projects/`); without one, the engine uses `default_project`.
+
+The user may say it in their own words. The engine takes plain text, so you turn their words into the ticket. If they point at an existing ticket (a number, a link, anything), read it yourself, for example with `gh issue view <number or link>`, run inside the repo folder for a bare number. Then send its title as the first line and its full text below. Otherwise, write the ticket as a clear, self-contained description of the work, including anything relevant from this conversation, because the planner never sees the conversation.
+
+Send the ticket through a quoted heredoc, so nothing in it is expanded:
 
 ```bash
 python3 "<skill base dir>/../../bin/ease-engine" start [project] <<'EASE_TICKET'
@@ -33,7 +37,7 @@ python3 "<skill base dir>/../../bin/ease-engine" reply <<'EASE_REPLY'
 EASE_REPLY
 ```
 
-After a reviewer's reply, print one line: `Task N: <decision> (Jev: <jev> <jev_confidence>)`, or `(Jev: no answer)` when `jev` is null.
+After a reviewer's reply, print one line: `Task N: <decision> (code rule: <code>, Jev: <jev> <jev_confidence>)`, or `(code rule: <code>, Jev: no answer)` when `jev` is null.
 
 **ask_user.** Show `message` as it is, then ask with AskUserQuestion, with two options: **Approve** and **Cancel**. To change the plan, the user types the changes into its free-text "Other" answer. Reply `approve`, `cancel`, or those changes in the user's own words, using the same heredoc. This is the only question you ask during a run.
 
@@ -41,4 +45,4 @@ After a reviewer's reply, print one line: `Task N: <decision> (Jev: <jev> <jev_c
 
 ## Rules
 
-Never edit code, run git or run checks yourself. Run one agent at a time. Never edit files in `.ease-context/runs/`. Never repeat a `reply`. If a result is unclear, run `next`.
+Never edit code, run git or run checks yourself; reading the ticket at the start is the one exception. Run one agent at a time. Never edit files in `.ease-context/runs/`. Never repeat a `reply`. If a result is unclear, run `next`.

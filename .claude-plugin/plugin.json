@@ -1,6 +1,6 @@
 {
   "name": "ease",
   "version": "0.2.0",
-  "description": "Ticket → plan → tasks → reviewed branch or PR, with Jev shadowing every decision.",
+  "description": "Ticket → plan → tasks → reviewed branch or PR, with Jev judging every decision.",
   "author": { "name": "Juan Soto" }
 }

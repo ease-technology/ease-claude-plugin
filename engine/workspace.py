@@ -46,7 +46,7 @@ def load_project(ws: Path, name: str) -> Project:
 
     context_file = folder / "context.md"
     context = context_file.read_text() if context_file.exists() else ""
-    return Project(name, repos, context)
+    return Project(repos, context)
 
 
 def slugify(text: str) -> str:
@@ -64,7 +64,7 @@ def new_state(project: str, title: str, body: str) -> State:
         project=project,
         ticket_title=title,
         ticket_body=body,
-        branch="ease/" + slug,
+        branch="ease-feature/" + slug,
     )
 
 

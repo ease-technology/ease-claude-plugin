@@ -10,7 +10,6 @@ API_URL = "https://api.typesafe.ai/v1/systemone"
 ACTIONS = {  # what can happen after a review, and what each one means
     "accept": "the task is done and working",
     "fix": "right approach, concrete problems to fix in another attempt",
-    "replan": "the plan itself is wrong",
     "escalate": "a human is needed",
 }
 PLAN_LEVELS = ["unusable", "vague", "workable with gaps", "clear", "clear and complete"]
