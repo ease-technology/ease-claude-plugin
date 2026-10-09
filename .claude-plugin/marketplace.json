@@ -1,0 +1,11 @@
+{
+  "name": "ease-local",
+  "owner": { "name": "Juan Soto" },
+  "plugins": [
+    {
+      "name": "ease",
+      "source": "./",
+      "description": "Ticket → plan → tasks → reviewed branch or PR, with Jev shadowing every decision."
+    }
+  ]
+}
