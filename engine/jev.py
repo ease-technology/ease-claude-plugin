@@ -13,6 +13,7 @@ ACTIONS = {  # what can happen after a review, and what each one means
     "escalate": "a human is needed",
 }
 PLAN_LEVELS = ["unusable", "vague", "workable with gaps", "clear", "clear and complete"]
+DIFF_LIMIT = 20_000  # characters of the task's diff that Jev sees
 
 
 def post(key: str, body: dict) -> dict:
@@ -66,7 +67,9 @@ def score_plan(key: str | None, state: State) -> tuple[float | None, float | Non
     return score, number_or_none(answer.get("confidence"))
 
 
-def judge_task(key: str | None, state: State, findings: list[str]) -> tuple[str | None, float | None]:
+def judge_task(
+    key: str | None, state: State, review_ok: bool, findings: list[str], diff: str
+) -> tuple[str | None, float | None]:
     """What Jev would do next with the current task. Returns (choice, confidence), or (None, None)."""
     # Jev slightly favors the first option, so the order turns by one with each decision.
     names = list(ACTIONS)
@@ -75,17 +78,20 @@ def judge_task(key: str | None, state: State, findings: list[str]) -> tuple[str 
     question = {
         "type": "choice",
         "instructions": (
-            "Given the `ticket`, the `task`, the `checks` and the `review_findings`, "
+            "Given the `ticket`, the `task`, its `diff`, the `checks` and the `review`, "
             "what should happen next with this task?"
         ),
         "criteria": {action: ACTIONS[action] for action in order},
     }
+    if len(diff) > DIFF_LIMIT:
+        diff = diff[:DIFF_LIMIT] + "\n[diff cut here]"
     jev_state = {
         "ticket": {"title": state.ticket_title, "body": state.ticket_body},
         "task": asdict(state.tasks[state.task]),
         "attempt": state.attempt,
+        "diff": diff,
         "checks": {"ok": state.checks_ok, "output": state.checks_output},
-        "review_findings": findings,
+        "review": {"ok": review_ok, "findings": findings},
     }
     answer = ask(key, jev_state, "next_action", question) or {}
     if answer.get("choice") not in order:

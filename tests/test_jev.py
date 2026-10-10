@@ -58,11 +58,21 @@ def test_judge_task_rotates_by_decisions_so_far(monkeypatch):
     monkeypatch.setattr(jev, "post", fake_post(answers, calls))
     state = make_state()
 
-    assert jev.judge_task("key", state, []) == ("fix", 0.7)
+    assert jev.judge_task("key", state, True, [], "") == ("fix", 0.7)
     state.log.append(Decision(task=1, attempt=1, checks_ok=True, review_ok=True, code="accept", final="accept"))
-    jev.judge_task("key", state, [])
+    jev.judge_task("key", state, True, [], "")
 
     first = list(calls[0]["questions"]["next_action"]["criteria"])
     second = list(calls[1]["questions"]["next_action"]["criteria"])
     assert first == ["accept", "fix", "escalate"]
     assert second == ["fix", "escalate", "accept"]
+
+
+def test_judge_task_sends_the_review_and_a_cut_diff(monkeypatch):
+    calls = []
+    monkeypatch.setattr(jev, "post", fake_post({}, calls))
+    jev.judge_task("key", make_state(), False, ["a.py: broken"], "x" * (jev.DIFF_LIMIT + 5))
+
+    sent = calls[0]["state"]
+    assert sent["review"] == {"ok": False, "findings": ["a.py: broken"]}
+    assert sent["diff"] == "x" * jev.DIFF_LIMIT + "\n[diff cut here]"

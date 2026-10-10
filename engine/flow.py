@@ -5,7 +5,7 @@ from pathlib import Path
 from engine import jev
 from engine.models import Decision, Project, Repo, State, Task
 from engine.shell import (
-    commit_all, commits_ahead, current_branch, has_remote, head,
+    commit_all, commits_ahead, current_branch, git, has_remote, head,
     is_dirty, open_pr, run_checks, switch_to_branch,
 )
 from engine.workspace import EaseError, load_config, load_project, new_state, run_dir, save_state
@@ -172,7 +172,9 @@ def reply_review(ws, state: State, project: Project, text: str) -> dict:
 
     code = code_rule(state.checks_ok, review_ok, state.attempt)
     key = load_config(ws).get("typesafe_api_key")
-    jev_choice, jev_confidence = jev.judge_task(key, state, findings)
+    _, repo = current_task(state, project)
+    diff = git(repo.path, "diff", state.task_start, "HEAD")  # every attempt at this task so far
+    jev_choice, jev_confidence = jev.judge_task(key, state, review_ok, findings, diff)
     # What went wrong: for the worker's next attempt (fix), or for you (escalate).
     checks_problem = [] if state.checks_ok else ["Checks failed:\n" + state.checks_output]
     state.problems = checks_problem + findings

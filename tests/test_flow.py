@@ -244,9 +244,12 @@ def test_jev_is_shadow_only(ws, monkeypatch):
         json.dumps({"default_project": "demo", "typesafe_api_key": "secret"})
     )
 
+    sent = []
+
     def fake_post(key, body):
         if "plan_quality" in body["questions"]:
             return {"answers": {"plan_quality": {"score": 4.2, "confidence": 0.81}}}
+        sent.append(body["state"])
         return {"answers": {"next_action": {"choice": "fix", "confidence": 0.7}}}
 
     monkeypatch.setattr(jev, "post", fake_post)
@@ -264,6 +267,8 @@ def test_jev_is_shadow_only(ws, monkeypatch):
     assert decision.code == "accept"
     assert decision.final == "accept"
     assert decision.jev == "fix"
+    assert "+done" in sent[0]["diff"]  # Jev sees the work itself
+    assert sent[0]["review"]["ok"] is True
     summary = ask(ws)["summary"]
     assert "Jev mode: shadow" in summary
     assert "agreed with the code rule on 0 of 1" in summary
