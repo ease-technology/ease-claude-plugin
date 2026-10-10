@@ -63,6 +63,8 @@ The work happens on a new branch, `ease-feature/<slug>`, in your normal checkout
 
 Jev scores the plan, and after every review it says what it would do. The answer is logged in `state.json` under `log` next to the code rule's decision, so you can compare them. A run keeps the `jev_mode` it started with.
 
+To judge a task, Jev gets the ticket, the task, its diff (the first 20,000 characters), the checks and the review. So your code goes to TypeSafe's API.
+
 In shadow mode Jev only watches: the code rule decides. In live mode Jev decides, but three guardrails always win:
 
 - If Jev gives no answer, or its confidence is below 0.5, the code rule's decision stands.
