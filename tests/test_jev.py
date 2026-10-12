@@ -1,6 +1,8 @@
+import json
+
 from engine import jev
-from engine.models import Decision, Task
-from engine.workspace import new_state
+from engine.models import Decision, Question, Task
+from engine.workspace import new_state, new_ticket_state
 
 
 def make_state():
@@ -44,10 +46,12 @@ def test_missing_answer_gives_none(monkeypatch):
 
 def test_score_plan(monkeypatch):
     calls = []
-    answers = {"plan_quality": {"score": 4.2, "confidence": 0.81}}
+    answers = {"plan_coverage": {"score": 4.2, "confidence": 0.81}}
     monkeypatch.setattr(jev, "post", fake_post(answers, calls))
     assert jev.score_plan("key", make_state()) == (4.2, 0.81)
-    assert calls[0]["questions"]["plan_quality"]["type"] == "score"
+    question = calls[0]["questions"]["plan_coverage"]
+    assert question["type"] == "score"
+    assert "each acceptance criterion" in question["instructions"]
     assert calls[0]["state"]["plan"]["tasks"][0]["title"] == "Do it"
     assert calls[0]["model"] == "jev-latest"
 
@@ -76,3 +80,39 @@ def test_judge_task_sends_the_review_and_a_cut_diff(monkeypatch):
     sent = calls[0]["state"]
     assert sent["review"] == {"ok": False, "findings": ["a.py: broken"]}
     assert sent["diff"] == "x" * jev.DIFF_LIMIT + "\n[diff cut here]"
+
+
+def make_ticket_state():
+    """A ticket run with one question already answered."""
+    state = new_ticket_state("demo", "Improve the sync")
+    state.questions.append(Question(
+        round=1, question="Old?", header="Old", context="", options={"A": "a", "B": "b"},
+        recommended="A", answer="B", decided_by="you",
+    ))
+    return state
+
+
+def a_question(text, labels=("Yes", "No", "Later")):
+    return Question(
+        round=2, question=text, header="Q", context="the code shows x",
+        options={label: f"means {label}" for label in labels}, recommended=labels[0],
+    )
+
+
+def test_judge_questions_asks_once_and_never_shows_the_recommendation(monkeypatch):
+    calls = []
+    answers = {"q1": {"choice": "No", "confidence": 0.8}, "q2": {"choice": ["No"], "confidence": 0.9}}
+    monkeypatch.setattr(jev, "post", fake_post(answers, calls))
+
+    picks = jev.judge_questions("key", make_ticket_state(), [a_question("First?"), a_question("Second?")])
+
+    assert picks == [("No", 0.8), (None, None)]  # a choice that isn't one of the options (here not even a string) counts as no answer
+    assert len(calls) == 1
+    sent = calls[0]
+    assert sent["state"]["decisions"] == [{"question": "Old?", "answer": "B"}]
+    assert "First?" in sent["questions"]["q1"]["instructions"]
+    assert "the code shows x" in sent["questions"]["q1"]["instructions"]
+    assert "recommend" not in json.dumps(sent).lower()
+    # One question was asked before, so the first new one turns by 1 and the second by 2.
+    assert list(sent["questions"]["q1"]["criteria"]) == ["No", "Later", "Yes"]
+    assert list(sent["questions"]["q2"]["criteria"]) == ["Later", "Yes", "No"]

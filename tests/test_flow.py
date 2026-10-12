@@ -247,15 +247,15 @@ def test_jev_is_shadow_only(ws, monkeypatch):
     sent = []
 
     def fake_post(key, body):
-        if "plan_quality" in body["questions"]:
-            return {"answers": {"plan_quality": {"score": 4.2, "confidence": 0.81}}}
+        if "plan_coverage" in body["questions"]:
+            return {"answers": {"plan_coverage": {"score": 4.2, "confidence": 0.81}}}
         sent.append(body["state"])
         return {"answers": {"next_action": {"choice": "fix", "confidence": 0.7}}}
 
     monkeypatch.setattr(jev, "post", fake_post)
 
     start_run(ws)
-    assert "Jev (shadow): plan score 4.2/5 (confidence 0.81)" in ask(ws)["message"]
+    assert "Jev (shadow): plan coverage 4.2/5 (confidence 0.81)" in ask(ws)["message"]
     send(ws, "approve")
     (ws / "app" / "ok.txt").write_text("done")
     send(ws, "Built it.")
@@ -323,7 +323,7 @@ def go_live(ws, monkeypatch, choice, confidence):
         {"default_project": "demo", "typesafe_api_key": "secret", "jev_mode": "live"}
     ))
     answers = {
-        "plan_quality": {"score": 4, "confidence": 0.9},
+        "plan_coverage": {"score": 4, "confidence": 0.9},
         "next_action": {"choice": choice, "confidence": confidence},
     }
     monkeypatch.setattr(jev, "post", lambda key, body: {"answers": answers})
@@ -347,7 +347,7 @@ def test_live_rule(code, jev_pick, confidence, attempt, problems, expected):
 def test_live_jev_can_ask_for_a_fix_on_a_pass_with_findings(ws, monkeypatch):
     go_live(ws, monkeypatch, "fix", 0.9)
     start_run(ws)
-    assert "Jev (live): plan score 4.0/5" in ask(ws)["message"]
+    assert "Jev (live): plan coverage 4.0/5" in ask(ws)["message"]
     send(ws, "approve")
     (ws / "app" / "ok.txt").write_text("done")  # the checks pass
     send(ws, "Built it.")
@@ -388,3 +388,17 @@ def test_bad_jev_mode_is_an_error_at_start(ws):
         flow.start(ws, None, "Add a thing")
     with pytest.raises(EaseError, match="no runs yet"):  # nothing was started
         load_state(ws)
+
+
+def test_a_ticket_file_gets_a_clean_title_and_the_reviewer_sees_it_all(ws):
+    flow.start(ws, None, "# Add a thing\n\n## Acceptance criteria\n- AC1: When asked, then it answers.\n")
+    state = load_state(ws)
+    assert state.ticket_title == "Add a thing"
+    assert state.branch == "ease-feature/add-a-thing"
+
+    send(ws, plan_report("app"))
+    send(ws, "approve")
+    (ws / "app" / "ok.txt").write_text("done")  # the checks pass
+    send(ws, "Built it.")
+    ask(ws)
+    assert "- AC1: When asked, then it answers." in last_prompt(ws)

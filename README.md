@@ -22,14 +22,27 @@ To get a new version later:
 
 ## Run it
 
-Start Claude in your workspace, the folder that holds `.ease-context/`:
+Start Claude in your workspace, the folder that holds `.ease-context/`, and say what you want in your own words:
 
 ```
 cd <workspace> && claude
-/ease:build practice Clean repo from any boilerplate
+/ease:build Clean the practice repo from any boilerplate
 ```
 
-The ticket can be anything Claude can read: your own words, an issue number, an issue link, or what you just discussed. If a run stops, say "resume" or run `/ease:build resume`.
+The ticket can be anything Claude can read: your own words, an issue number, an issue link, a ticket file, or what you just discussed. You never name the project; Claude works it out from your words and falls back to `default_project`. If a run stops, say "resume" or run `/ease:build resume`.
+
+## Tickets
+
+To shape an idea before building it, say so in plain words, for example "I want to improve the component sync in ease studio", or run `/ease:ticket <idea>`. An interviewer agent reads the code and asks you up to 4 questions at a time, each with a recommended answer, until nothing important is left open (5 rounds at most). Then it writes a one-page ticket to `.ease-context/projects/<name>/tickets/<slug>.md`. The ticket opens with a job story and has numbered acceptance criteria, and you build it with `/ease:build <that path>`.
+
+Jev answers every question too, without seeing the recommendation, and scores whether the ticket is ready to build by comparing it with the interview.
+
+- In shadow mode every question comes to you, and an option says "Jev would pick this" where Jev differs from the recommendation. You approve the ticket before it is written.
+- In live mode a question is settled without you when Jev picks the recommended option with confidence 0.5 or more. A readiness score of 4 or more (confidence 0.5 or more) writes the ticket without asking you; a lower one first gets one more round of questions.
+
+The summary tells you how often Jev agreed with you, and how often you agreed when Jev and the recommendation agreed. That's the number to watch before you turn live mode on.
+
+Ticket runs are kept in `.ease-context/ticket-runs/`. Add it to your workspace's `.gitignore`, next to `.ease-context/runs/`.
 
 ## Change the plugin
 
@@ -47,7 +60,7 @@ It lives in your workspace, not in the plugin.
   runs/<run_id>/state.json       run state, including the Jev log
 ```
 
-`checks` is any shell command the repo already uses, in any language. `jev_mode` is `"shadow"` (the default) or `"live"`; anything else is an error when a run starts. `typesafe_api_key` turns Jev on; see [Jev](#jev).
+`checks` is any shell command the repo already uses, in any language. `default_project` is used when Claude can't tell the project from your words. `jev_mode` is `"shadow"` (the default) or `"live"`; anything else is an error when a run starts. `typesafe_api_key` turns Jev on; see [Jev](#jev).
 
 ## The flow
 
@@ -69,7 +82,7 @@ To turn Jev on, put your TypeSafe API key in `<workspace>/.ease-context/config.j
 
 The key is a secret, so add `.ease-context/config.json` to your workspace's `.gitignore`. Without a key, Jev is skipped and the code rule decides alone. If a call to Jev fails, the run goes on without it, and Claude shows you the `jev: ...` error line.
 
-Jev scores the plan, and after every review it says what it would do. The answer is logged in `state.json` under `log` next to the code rule's decision, so you can compare them. A run keeps the `jev_mode` it started with.
+Jev scores how fully the plan covers the ticket, and after every review it says what it would do. The answer is logged in `state.json` under `log` next to the code rule's decision, so you can compare them. A run keeps the `jev_mode` it started with.
 
 To judge a task, Jev gets the ticket, the task, its diff (the first 20,000 characters), the checks and the review. So your code goes to TypeSafe's API.
 
@@ -81,12 +94,13 @@ In shadow mode Jev only watches: the code rule decides. In live mode Jev decides
 
 ## The engine
 
-- `engine/models.py` holds the data model: what a run, a task and a decision look like.
+- `engine/models.py` holds the data model: what a run, a task, a decision and a ticket run look like.
 - `engine/workspace.py` reads the config and the run state.
 - `engine/shell.py` runs git, gh and the repo's checks.
 - `engine/jev.py` asks Jev its questions.
 - `engine/flow.py` holds the steps, the code rule and the live rule.
-- `engine/cli.py` is the `start`, `next` and `reply` commands.
+- `engine/ticket.py` holds the ticket flow: the interview, the question rule and the ready rule.
+- `engine/cli.py` is the `start`, `next` and `reply` commands, for build and, after `ticket`, for tickets.
 
 Run the tests from a fresh clone:
 
