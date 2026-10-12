@@ -1,4 +1,4 @@
-"""The data model: what a project, a run, a task and a decision look like."""
+"""The data model: what a project, a run, a task, a decision and a ticket run look like."""
 import json
 from dataclasses import asdict, dataclass, field
 
@@ -61,7 +61,39 @@ class State:
     outcome: str = ""                  # done | escalated | cancelled
 
 
-def state_to_json(state: State) -> str:
+@dataclass
+class Question:          # one interview question, and how it was answered
+    round: int           # which round it was asked in, from 1
+    question: str
+    header: str          # short label for AskUserQuestion, at most 12 characters
+    context: str         # what the interviewer found in the code that makes this a question
+    options: dict[str, str]            # label -> description, 2 to 4 of them
+    recommended: str                   # one of the labels
+    jev: str | None = None             # Jev's pick, one of the labels
+    jev_confidence: float | None = None
+    answer: str = ""                   # a label, or your own words
+    decided_by: str = ""               # you | jev
+
+
+@dataclass
+class TicketState:
+    run_id: str
+    project: str
+    idea: str                          # your idea, as Claude wrote it down
+    jev_mode: str = "shadow"           # shadow | live, copied from config.json when the run starts
+    step: str = "interview"            # interview | answer | approve | done
+    questions: list[Question] = field(default_factory=list)
+    rounds: int = 0                    # rounds of questions asked so far
+    draft: str = ""                    # the last ticket the interviewer wrote
+    readiness: float | None = None     # Jev's score of the draft, 1-5
+    readiness_confidence: float | None = None
+    extra_round: bool = False          # live mode: Jev already sent a draft back once
+    notes: str = ""                    # your changes to the last draft
+    path: str = ""                     # where the ticket was written
+    outcome: str = ""                  # written | cancelled
+
+
+def state_to_json(state: State | TicketState) -> str:
     """The state as JSON text, for state.json."""
     return json.dumps(asdict(state), indent=2)
 
@@ -72,3 +104,10 @@ def state_from_json(text: str) -> State:
     data["tasks"] = [Task(**t) for t in data["tasks"]]
     data["log"] = [Decision(**d) for d in data["log"]]
     return State(**data)
+
+
+def ticket_state_from_json(text: str) -> TicketState:
+    """Read a ticket run's state.json back into a TicketState (with its Questions)."""
+    data = json.loads(text)
+    data["questions"] = [Question(**q) for q in data["questions"]]
+    return TicketState(**data)

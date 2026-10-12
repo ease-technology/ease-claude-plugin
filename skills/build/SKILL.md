@@ -1,6 +1,6 @@
 ---
 name: build
-description: Use when the user runs /ease:build with a ticket, or asks to resume an ease run. Turns a ticket into a planned, built and reviewed branch, and a PR when the repo has a GitHub remote.
+description: Use when the user wants ease to build a ticket (their own words, an issue number or link, or a ticket file from .ease-context/projects/<name>/tickets/), runs /ease:build, or asks to resume an ease run. Turns a ticket into a planned, built and reviewed branch, and a PR when the repo has a GitHub remote.
 ---
 
 # ease build
@@ -11,9 +11,11 @@ Write the full engine command in every Bash call, because shell variables do not
 
 ## Start
 
-`/ease:build [project] <ticket>` runs `start`. Pass the project as an argument if the user named one (projects are the folders in `.ease-context/projects/`); without one, the engine uses `default_project`.
+`/ease:build <ticket>`, or any request to build something with ease, runs `start`.
 
-The user may say it in their own words. The engine takes plain text, so you turn their words into the ticket. If they point at an existing ticket (a number, a link, anything), read it yourself, for example with `gh issue view <number or link>`, run inside the repo folder for a bare number. Then send its title as the first line and its full text below. Otherwise, write the ticket as a clear, self-contained description of the work, including anything relevant from this conversation, because the planner never sees the conversation.
+Work out the project from the user's words; never ask them to name it. The projects are the folders in `.ease-context/projects/`: read each one's `project.json` (its repo names) and `context.md`. A ticket file under `.ease-context/projects/<name>/tickets/` belongs to `<name>`. Otherwise pick the project whose name, repos or context match what the user said. If nothing matches, leave the project out and the engine uses `default_project`. If two projects fit equally well, ask the user which one.
+
+The user may say it in their own words. The engine takes plain text, so you turn their words into the ticket. If they point at an existing ticket (a ticket file, a number, a link, anything), read it yourself, for example with `gh issue view <number or link>`, run inside the repo folder for a bare number. Then send its title as the first line and its full text below. For a ticket file, send its text as it is. Otherwise, write the ticket as a clear, self-contained description of the work, including anything relevant from this conversation, because the planner never sees the conversation.
 
 Send the ticket through a quoted heredoc, so nothing in it is expanded:
 

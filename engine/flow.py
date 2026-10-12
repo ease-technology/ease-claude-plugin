@@ -3,12 +3,14 @@ import json
 from pathlib import Path
 
 from engine import jev
-from engine.models import Decision, Project, Repo, State, Task
+from engine.models import Decision, Project, Repo, State, Task, TicketState
 from engine.shell import (
     commit_all, commits_ahead, current_branch, git, has_remote, head,
     is_dirty, open_pr, run_checks, switch_to_branch,
 )
-from engine.workspace import EaseError, load_config, load_project, new_state, run_dir, save_state
+from engine.workspace import (
+    EaseError, load_config, load_project, new_state, project_and_mode, save_state, state_dir,
+)
 
 PLAN_SHAPE = """```json
 {"summary": "...", "tasks": [{"title": "...", "repo": "<one of the repo names above>", "steps": ["..."], "done_when": "..."}]}
@@ -22,19 +24,11 @@ REVIEW_SHAPE = """```json
 
 def start(ws, project_name: str | None, text: str) -> dict:
     """Begin a run. With no project name, use default_project from config.json."""
-    config = load_config(ws)
-    project_name = project_name or config.get("default_project")
-    if not project_name:
-        raise EaseError("no project given and no default_project in config.json")
-    load_project(ws, project_name)  # fails early if the project is unknown or bad
-    jev_mode = config.get("jev_mode", "shadow")
-    if jev_mode not in ("shadow", "live"):
-        raise EaseError('jev_mode must be "shadow" or "live"')
-
+    project_name, jev_mode = project_and_mode(ws, project_name)
     text = text.strip()
     if not text:
         raise EaseError("no ticket given")
-    title = text.splitlines()[0][:80]  # the ticket's first line
+    title = text.splitlines()[0].lstrip("#").strip()[:80]  # the first line, without a Markdown "# "
 
     state = new_state(project_name, title, text)
     state.jev_mode = jev_mode  # the run keeps this mode, even if config.json changes later
@@ -59,9 +53,9 @@ def next_action(ws, state: State) -> dict:
     return spawn(ws, state, "reviewer", reviewer_prompt(state, project))
 
 
-def spawn(ws, state: State, agent: str, prompt: str) -> dict:
-    """Save the prompt as prompts/NN-<agent>.md and ask the skill to start the agent."""
-    folder = run_dir(ws, state.run_id) / "prompts"
+def spawn(ws, state: State | TicketState, agent: str, prompt: str) -> dict:
+    """Save the prompt as prompts/NN-<agent>.md in the run's folder and ask the skill to start the agent."""
+    folder = state_dir(ws, state) / "prompts"
     folder.mkdir(parents=True, exist_ok=True)
     number = len(list(folder.glob("*.md"))) + 1
     path = folder / f"{number:02d}-{agent}.md"
@@ -281,7 +275,7 @@ def plan_text(state: State) -> str:
     if state.plan_score is None:
         lines.append(f"{jev_label}: no score (no key or no answer)")
     else:
-        line = f"{jev_label}: plan score {state.plan_score:.1f}/{len(jev.PLAN_LEVELS)}"
+        line = f"{jev_label}: plan coverage {state.plan_score:.1f}/{len(jev.PLAN_LEVELS)}"
         if state.plan_confidence is not None:
             line += f" (confidence {state.plan_confidence:.2f})"
         lines.append(line)
@@ -345,8 +339,8 @@ def reviewer_prompt(state: State, project: Project) -> str:
     task, repo = current_task(state, project)
     lines = [
         "# Review one task", "",
-        f"Ticket: {state.ticket_title}", "",
-        f"Task: {task.title}",
+        f"## Ticket: {state.ticket_title}", "", state.ticket_body, "",
+        f"## Task: {task.title}", "",
         "Steps:", *[f"- {step}" for step in task.steps],
         f"Done when: {task.done_when}", "",
         f"Repo: {repo.path}",

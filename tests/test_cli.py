@@ -42,3 +42,30 @@ def test_errors_are_printed_as_json(ws, monkeypatch, capsys):
 
     assert main(["start", "demo", "extra"]) == 1
     assert output(capsys)["error"].startswith("usage: ")
+
+
+def test_ticket_commands(ws, monkeypatch, capsys):
+    monkeypatch.chdir(ws)
+    assert main(["ticket", "next"]) == 1
+    assert output(capsys) == {"error": "no ticket runs yet"}
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("Improve the sync\n"))  # the idea
+    assert main(["ticket", "start"]) == 0
+    assert "run_id" in output(capsys)
+
+    assert main(["ticket", "next"]) == 0
+    assert output(capsys)["agent"] == "ease:interviewer"
+
+    ticket_text = "# Improve the sync\n\n## Acceptance criteria\n- AC1: When it syncs, then it is fast.\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO(ticket_text))
+    assert main(["ticket", "reply"]) == 0
+    assert output(capsys)["decision"] == "ask_you"
+
+    assert main(["ticket", "next"]) == 0
+    assert output(capsys)["type"] == "ask_user"
+
+    assert main(["next"]) == 1  # build runs are separate
+    assert output(capsys) == {"error": "no runs yet"}
+
+    assert main(["ticket", "bogus"]) == 1
+    assert output(capsys)["error"].startswith("usage: ")
