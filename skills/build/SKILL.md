@@ -17,10 +17,12 @@ Work out the project from the user's words; never ask them to name it. The proje
 
 The user may say it in their own words. The engine takes plain text, so you turn their words into the ticket. If they point at an existing ticket (a ticket file, a number, a link, anything), read it yourself, for example with `gh issue view <number or link>`, run inside the repo folder for a bare number. Then send its title as the first line and its full text below. For a ticket file, send its text as it is. Otherwise, write the ticket as a clear, self-contained description of the work, including anything relevant from this conversation, because the planner never sees the conversation.
 
+Name the branch the way the project names its branches. If the project's `context.md`, or a file it points to such as the repo's `AGENTS.md`, sets a branch convention, follow it, for example the Linear issue's `gitBranchName` used as it is, and pass the name with `--branch <name>`. Otherwise leave it out, and the engine uses `ease-feature/<slug>`.
+
 Send the ticket through a quoted heredoc, so nothing in it is expanded:
 
 ```bash
-python3 "<skill base dir>/../../bin/ease-engine" start [project] <<'EASE_TICKET'
+python3 "<skill base dir>/../../bin/ease-engine" start [project] [--branch <name>] <<'EASE_TICKET'
 <the ticket>
 EASE_TICKET
 ```

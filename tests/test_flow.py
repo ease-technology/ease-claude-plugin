@@ -6,7 +6,7 @@ import pytest
 
 from conftest import git_repo, write_project
 from engine import flow, jev
-from engine.workspace import CONTEXT_DIR, EaseError, load_state
+from engine.workspace import CONTEXT_DIR, EaseError, load_state, new_state, save_state
 
 PASS = '```json\n{"verdict": "pass", "findings": []}\n```'
 
@@ -82,6 +82,14 @@ def test_start_with_project_name(ws):
     state = load_state(ws)
     assert state.project == "other"
     assert state.ticket_title == "Fix the bug"
+
+
+def test_start_with_a_branch_name(ws):
+    flow.start(ws, None, "Add a thing", "juan/joi-7-add-a-thing")
+    send(ws, plan_report("app"))
+    send(ws, "approve")
+    assert load_state(ws).branch == "juan/joi-7-add-a-thing"
+    assert branch_of(ws / "app") == "juan/joi-7-add-a-thing"
 
 
 def test_happy_path(ws):
@@ -218,10 +226,13 @@ def test_existing_branch_blocks_approve(ws):
 
 
 @pytest.mark.parametrize("checkout, message", [
-    (["switch", "-c", "ease-feature/old"], "is on ease-feature/old"),
+    (["switch", "-c", "juan/joi-1-old-thing"], "is on juan/joi-1-old-thing"),
     (["checkout", "--detach"], "is on a detached HEAD"),
 ])
 def test_repo_on_an_old_run_branch_or_detached_head_blocks_approve(ws, checkout, message):
+    old = new_state("demo", "Old thing", "Old thing", "juan/joi-1-old-thing")
+    old.run_id = "20000101-000000-old-thing"  # older than the run below
+    save_state(ws, old)
     start_run(ws)
     subprocess.run(["git", *checkout], cwd=ws / "app", check=True, capture_output=True)
 

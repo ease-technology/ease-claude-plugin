@@ -6,7 +6,10 @@ import sys
 from engine import flow, ticket
 from engine.workspace import EaseError, find_workspace, load_state, load_ticket_state
 
-USAGE = "usage: ease-engine [ticket] start [project] | [ticket] next | [ticket] reply  (text on stdin)"
+USAGE = (
+    "usage: ease-engine [ticket] start [project] | start [project] --branch <name>"
+    " | [ticket] next | [ticket] reply  (text on stdin)"
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,4 +39,6 @@ def command(ws, args: list[str], steps, load) -> dict:
         return steps.reply(ws, load(ws), sys.stdin.read())
     if len(args) in (1, 2) and args[0] == "start":
         return steps.start(ws, args[1] if len(args) == 2 else None, sys.stdin.read())
+    if steps is flow and len(args) in (3, 4) and args[0] == "start" and args[-2] == "--branch":  # only builds branch
+        return flow.start(ws, args[1] if len(args) == 4 else None, sys.stdin.read(), args[-1])
     raise EaseError(USAGE)

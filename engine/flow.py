@@ -9,7 +9,8 @@ from engine.shell import (
     is_dirty, open_pr, run_checks, switch_to_branch,
 )
 from engine.workspace import (
-    EaseError, load_config, load_project, new_state, project_and_mode, save_state, state_dir,
+    EaseError, load_config, load_project, new_state, project_and_mode, run_branches, save_state,
+    state_dir,
 )
 
 PLAN_SHAPE = """```json
@@ -22,15 +23,16 @@ REVIEW_SHAPE = """```json
 
 # ---------- start ----------
 
-def start(ws, project_name: str | None, text: str) -> dict:
-    """Begin a run. With no project name, use default_project from config.json."""
+def start(ws, project_name: str | None, text: str, branch: str | None = None) -> dict:
+    """Begin a run. With no project name, use default_project from config.json.
+    With no branch name, the work goes on ease-feature/<slug of the title>."""
     project_name, jev_mode = project_and_mode(ws, project_name)
     text = text.strip()
     if not text:
         raise EaseError("no ticket given")
     title = text.splitlines()[0].lstrip("#").strip()[:80]  # the first line, without a Markdown "# "
 
-    state = new_state(project_name, title, text)
+    state = new_state(project_name, title, text, branch)
     state.jev_mode = jev_mode  # the run keeps this mode, even if config.json changes later
     save_state(ws, state)
     return {"run_id": state.run_id}
@@ -121,6 +123,7 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
         state.step = "plan"
     else:
         repos = list(dict.fromkeys(task.repo for task in state.tasks))  # no duplicates, in order
+        old_branches = run_branches(ws)
         for repo in repos:
             path = project.repos[repo].path
             if not (Path(path) / ".git").exists():
@@ -128,7 +131,7 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
             if is_dirty(path):
                 raise EaseError(f"{path} has uncommitted changes. Commit or stash them, then approve again.")
             branch = current_branch(path)
-            if branch == "HEAD" or branch.startswith("ease-feature/"):  # an old run's branch, or no branch at all
+            if branch == "HEAD" or branch in old_branches:  # a run's branch, or no branch at all
                 where = "a detached HEAD" if branch == "HEAD" else branch
                 raise EaseError(
                     f"{path} is on {where}. Check out the branch you want the work based on (like develop), "

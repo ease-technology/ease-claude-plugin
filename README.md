@@ -74,7 +74,7 @@ The code rule is simple. If the checks pass and the review passes, the task is a
 
 A ticket can touch several repos. The plan splits it into tasks, each in one repo, and at the end you get one PR per repo that changed. Each PR goes into the branch that repo had checked out when you approved the plan, so check out `develop` (or whatever you merge into) first.
 
-The work happens on a new branch, `ease-feature/<slug>`, in your normal checkouts. Before you approve, commit or stash any local changes in those repos.
+The work happens on a new branch in your normal checkouts. Claude names it the way the project's `context.md` says, for example a Linear issue's `gitBranchName`, and when it says nothing the branch is `ease-feature/<slug>`. Before you approve, commit or stash any local changes in those repos.
 
 ## Jev
 
