@@ -35,6 +35,14 @@ def test_start_next_reply(ws, monkeypatch, capsys):
     assert output(capsys)["type"] == "ask_user"
 
 
+def test_start_with_a_branch(ws, monkeypatch, capsys):
+    monkeypatch.chdir(ws)
+    monkeypatch.setattr("sys.stdin", io.StringIO("Add a thing\n"))
+    assert main(["start", "--branch", "juan/joi-7-add-a-thing"]) == 0
+    assert "run_id" in output(capsys)
+    assert load_state(ws).branch == "juan/joi-7-add-a-thing"
+
+
 def test_errors_are_printed_as_json(ws, monkeypatch, capsys):
     monkeypatch.chdir(ws)
     assert main(["next"]) == 1  # no runs yet
@@ -68,4 +76,7 @@ def test_ticket_commands(ws, monkeypatch, capsys):
     assert output(capsys) == {"error": "no runs yet"}
 
     assert main(["ticket", "bogus"]) == 1
+    assert output(capsys)["error"].startswith("usage: ")
+
+    assert main(["ticket", "start", "--branch", "x"]) == 1  # ticket runs have no branch
     assert output(capsys)["error"].startswith("usage: ")

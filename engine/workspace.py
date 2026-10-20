@@ -71,16 +71,22 @@ def slugify(text: str) -> str:
     return slug or "run"
 
 
-def new_state(project: str, title: str, body: str) -> State:
-    """A fresh run for a ticket."""
+def new_state(project: str, title: str, body: str, branch: str | None = None) -> State:
+    """A fresh run for a ticket. With no branch name, the work goes on ease-feature/<slug>."""
     slug = slugify(title)
     return State(
         run_id=time.strftime("%Y%m%d-%H%M%S") + "-" + slug,
         project=project,
         ticket_title=title,
         ticket_body=body,
-        branch="ease-feature/" + slug,
+        branch=branch or "ease-feature/" + slug,
     )
+
+
+def run_branches(ws: Path) -> set[str]:
+    """The branch of every build run so far."""
+    files = (ws / CONTEXT_DIR / "runs").glob("*/state.json")
+    return {json.loads(file.read_text())["branch"] for file in files}
 
 
 def new_ticket_state(project: str, idea: str) -> TicketState:

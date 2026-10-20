@@ -41,7 +41,7 @@ class State:
     project: str
     ticket_title: str
     ticket_body: str
-    branch: str                        # ease-feature/<slug>
+    branch: str                        # the name given at start, else ease-feature/<slug>
     jev_mode: str = "shadow"           # shadow | live, copied from config.json when the run starts
     step: str = "plan"                 # plan | approve | build | review | done
     notes: str = ""                    # your change notes for the planner
