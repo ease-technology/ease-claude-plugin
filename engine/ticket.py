@@ -3,7 +3,7 @@ import json
 
 from engine import jev
 from engine.flow import parse_report, spawn
-from engine.models import Project, Question, TicketState
+from engine.models import Project, Question, TicketState, Verdict
 from engine.workspace import (
     CONTEXT_DIR, EaseError, load_config, load_project, new_ticket_state, project_and_mode, save_state, slugify,
 )
@@ -259,7 +259,7 @@ def ready_rule(mode, score, confidence, extra_round_used) -> str:
 
 
 def reply_approve(ws, state: TicketState, text: str) -> dict:
-    """Your answer to the draft: Approve, Cancel, or the changes you want."""
+    """Your answer to the draft: Approve, Cancel, or the changes you want. It is logged next to Jev's score."""
     answer = read_answers(text).get(APPROVE_QUESTION, "")
     if not answer:
         raise EaseError(f"no answer for: {APPROVE_QUESTION}")
@@ -271,6 +271,8 @@ def reply_approve(ws, state: TicketState, text: str) -> dict:
     else:  # your changes: the next interviewer gets the draft and these notes
         state.notes = answer
         state.step = "interview"
+    verdict = answer.lower() if answer.lower() in ("approve", "cancel") else "change"
+    state.draft_log.append(Verdict(state.readiness, state.readiness_confidence, verdict))
     return {"ok": True}
 
 

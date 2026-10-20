@@ -36,6 +36,13 @@ class Decision:          # one line of the Jev log: the code rule, Jev, and what
 
 
 @dataclass
+class Verdict:           # Jev's score of a plan or a ticket draft, and your answer to it
+    score: float | None
+    confidence: float | None
+    answer: str          # approve | change | cancel
+
+
+@dataclass
 class State:
     run_id: str
     project: str
@@ -49,6 +56,7 @@ class State:
     tasks: list[Task] = field(default_factory=list)
     plan_score: float | None = None    # Jev's score of the plan, 1-5
     plan_confidence: float | None = None
+    plan_log: list[Verdict] = field(default_factory=list)  # every plan you answered
     bases: dict[str, str] = field(default_factory=dict)  # repo -> the branch we started from (the PR base)
     task: int = 0                      # index of the current task
     attempt: int = 1
@@ -87,6 +95,7 @@ class TicketState:
     draft: str = ""                    # the last ticket the interviewer wrote
     readiness: float | None = None     # Jev's score of the draft, 1-5
     readiness_confidence: float | None = None
+    draft_log: list[Verdict] = field(default_factory=list)  # every draft you answered
     extra_round: bool = False          # live mode: Jev already sent a draft back once
     notes: str = ""                    # your changes to the last draft
     path: str = ""                     # where the ticket was written
@@ -103,6 +112,7 @@ def state_from_json(text: str) -> State:
     data = json.loads(text)
     data["tasks"] = [Task(**t) for t in data["tasks"]]
     data["log"] = [Decision(**d) for d in data["log"]]
+    data["plan_log"] = [Verdict(**v) for v in data.get("plan_log", [])]  # older runs have none
     return State(**data)
 
 
@@ -110,4 +120,5 @@ def ticket_state_from_json(text: str) -> TicketState:
     """Read a ticket run's state.json back into a TicketState (with its Questions)."""
     data = json.loads(text)
     data["questions"] = [Question(**q) for q in data["questions"]]
+    data["draft_log"] = [Verdict(**v) for v in data.get("draft_log", [])]  # older runs have none
     return TicketState(**data)

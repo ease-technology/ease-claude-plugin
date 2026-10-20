@@ -3,6 +3,7 @@ import json
 import pytest
 
 from engine import jev, ticket
+from engine.models import Verdict
 from engine.workspace import CONTEXT_DIR, EaseError, load_state, load_ticket_state
 
 TICKET = (
@@ -100,6 +101,7 @@ def test_shadow_run(ws, monkeypatch):
     assert action["questions"][0]["question"] == ticket.APPROVE_QUESTION
     send(ws, answers({ticket.APPROVE_QUESTION: "Approve"}))
 
+    assert load_ticket_state(ws).draft_log == [Verdict(4.2, 0.8, "approve")]
     assert (folder / "add-a-thing.md").read_text() == "mine"  # never overwritten
     path = folder / "add-a-thing-2.md"
     assert path.read_text() == TICKET
@@ -153,6 +155,7 @@ def test_changes_go_back_then_cancel_writes_nothing(ws):
     send(ws, TICKET)  # the revised draft
     assert load_ticket_state(ws).notes == ""
     send(ws, answers({ticket.APPROVE_QUESTION: "Cancel"}))
+    assert [v.answer for v in load_ticket_state(ws).draft_log] == ["change", "cancel"]
     assert not (ws / CONTEXT_DIR / "projects" / "demo" / "tickets").exists()
     assert "Cancelled: no ticket written" in ask(ws)["summary"]
     with pytest.raises(EaseError, match="this ticket run is done"):

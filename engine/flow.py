@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from engine import jev
-from engine.models import Decision, Project, Repo, State, Task, TicketState
+from engine.models import Decision, Project, Repo, State, Task, TicketState, Verdict
 from engine.shell import (
     commit_all, commits_ahead, current_branch, git, has_remote, head,
     is_dirty, open_pr, run_checks, switch_to_branch,
@@ -112,7 +112,7 @@ def reply_plan(ws, state: State, project: Project, text: str) -> dict:
 
 
 def reply_approve(ws, state: State, project: Project, text: str) -> dict:
-    """The user's answer to the plan: approve, cancel, or change notes."""
+    """The user's answer to the plan: approve, cancel, or change notes. It is logged next to Jev's score."""
     answer = text.strip().strip(".!").lower()
 
     if answer == "cancel":
@@ -145,6 +145,8 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
         state.attempt = 1
         state.task_start = head(project.repos[state.tasks[0].repo].path)
         state.step = "build"
+    verdict = answer if answer in ("approve", "cancel") else "change"  # after the checks: a refused approve isn't logged
+    state.plan_log.append(Verdict(state.plan_score, state.plan_confidence, verdict))
     return {"ok": True}
 
 

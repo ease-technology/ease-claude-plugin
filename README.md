@@ -86,7 +86,7 @@ To turn Jev on, put your TypeSafe API key in `<workspace>/.ease-context/config.j
 
 The key is a secret, so add `.ease-context/config.json` to your workspace's `.gitignore`. Without a key, Jev is skipped and the code rule decides alone. If a call to Jev fails, the run goes on without it, and Claude shows you the `jev: ...` error line.
 
-Jev scores how fully the plan covers the ticket, and after every review it says what it would do. The answer is logged in `state.json` under `log` next to the code rule's decision, so you can compare them. A run keeps the `jev_mode` it started with.
+Jev scores how fully the plan covers the ticket, and after every review it says what it would do. The answer is logged in `state.json` under `log` next to the code rule's decision, so you can compare them. Each plan you answer goes under `plan_log`, with Jev's score, its confidence and your answer (approve, change or cancel). Ticket runs do the same for drafts under `draft_log`, and each question keeps Jev's pick next to your answer. This shadow data is what live mode's thresholds can later be set from. A run keeps the `jev_mode` it started with.
 
 To judge a task, Jev gets the ticket, the task, its diff (the first 20,000 characters), the checks and the review. So your code goes to TypeSafe's API.
 
