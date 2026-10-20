@@ -6,6 +6,7 @@ import pytest
 
 from conftest import git_repo, write_project
 from engine import flow, jev
+from engine.models import Verdict
 from engine.workspace import CONTEXT_DIR, EaseError, load_state, new_state, save_state
 
 PASS = '```json\n{"verdict": "pass", "findings": []}\n```'
@@ -213,7 +214,27 @@ def test_dirty_repo_blocks_approve(ws):
         send(ws, "approve")
 
     assert load_state(ws).step == "approve"
+    assert load_state(ws).plan_log == []  # a refused approve isn't logged
     assert branch_of(ws / "app") == "main"
+
+
+def test_each_plan_answer_is_logged_with_jevs_score(ws, monkeypatch):
+    scores = iter([(2.5, 0.4), (4.1, 0.8)])
+    monkeypatch.setattr(jev, "score_plan", lambda key, state: next(scores))
+    start_run(ws)
+    send(ws, "Split the task in two.")
+    send(ws, plan_report("app"))
+    send(ws, "approve")
+    assert load_state(ws).plan_log == [Verdict(2.5, 0.4, "change"), Verdict(4.1, 0.8, "approve")]
+
+
+def test_a_run_saved_before_plan_log_still_loads(ws):
+    start_run(ws)
+    file = next((ws / CONTEXT_DIR / "runs").glob("*/state.json"))
+    data = json.loads(file.read_text())
+    del data["plan_log"]
+    file.write_text(json.dumps(data))
+    assert load_state(ws).plan_log == []
 
 
 def test_existing_branch_blocks_approve(ws):
