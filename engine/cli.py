@@ -1,5 +1,6 @@
-"""Command line: start / next / reply for build runs, and the same after `ticket` for ticket runs.
-Every outcome prints exactly one JSON object."""
+"""Command line: start / runs / next / reply for build runs, and the same after `ticket` for ticket runs.
+next and reply name their run, so several sessions can each drive their own. Every outcome prints exactly
+one JSON object."""
 import json
 import sys
 
@@ -8,12 +9,12 @@ from engine.workspace import EaseError, find_workspace, load_state, load_ticket_
 
 USAGE = (
     "usage: ease-engine [ticket] start [project] | start [project] --branch <name>"
-    " | [ticket] next | [ticket] reply  (text on stdin)"
+    " | [ticket] runs | [ticket] next <run_id> | [ticket] reply <run_id>  (text on stdin)"
 )
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one command on the newest run. The ticket or idea (start) and the reply text come on stdin."""
+    """Run one command. The ticket or idea (start) and the reply text come on stdin."""
     args = sys.argv[1:] if argv is None else argv
     try:
         ws = find_workspace()
@@ -32,11 +33,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def command(ws, args: list[str], steps, load) -> dict:
-    """start / next / reply. `steps` is the flow or the ticket module; `load` reads its newest run."""
-    if args == ["next"]:
-        return steps.next_action(ws, load(ws))
-    if args == ["reply"]:
-        return steps.reply(ws, load(ws), sys.stdin.read())
+    """start / runs / next / reply. `steps` is the flow or the ticket module; `load` reads one of its runs."""
+    if args == ["runs"]:
+        return steps.open_runs(ws)
+    if len(args) == 2 and args[0] == "next":
+        return steps.next_action(ws, load(ws, args[1]))
+    if len(args) == 2 and args[0] == "reply":
+        return steps.reply(ws, load(ws, args[1]), sys.stdin.read())
     if len(args) in (1, 2) and args[0] == "start":
         return steps.start(ws, args[1] if len(args) == 2 else None, sys.stdin.read())
     if steps is flow and len(args) in (3, 4) and args[0] == "start" and args[-2] == "--branch":  # only builds branch

@@ -4,7 +4,7 @@ import pytest
 
 from engine import jev, ticket
 from engine.models import Verdict
-from engine.workspace import CONTEXT_DIR, EaseError, load_state, load_ticket_state
+from engine.workspace import CONTEXT_DIR, EaseError, build_runs, ticket_runs
 
 TICKET = (
     "# Add a thing\n\n"
@@ -33,14 +33,19 @@ def answers(by_question):
     return json.dumps({"answers": by_question})
 
 
+def newest(ws):
+    """The newest ticket run, loaded from disk like the CLI does."""
+    return ticket_runs(ws)[-1]
+
+
 def send(ws, text):
-    """Reply to the newest ticket run, loading its state from disk like the CLI does."""
-    return ticket.reply(ws, load_ticket_state(ws), text)
+    """Reply to the newest ticket run."""
+    return ticket.reply(ws, newest(ws), text)
 
 
 def ask(ws):
     """Ask the newest ticket run what to do next."""
-    return ticket.next_action(ws, load_ticket_state(ws))
+    return ticket.next_action(ws, newest(ws))
 
 
 def last_prompt(ws):
@@ -71,9 +76,8 @@ def use_jev(ws, monkeypatch, mode="shadow", picks=(), readiness=None):
 def test_shadow_run(ws, monkeypatch):
     use_jev(ws, monkeypatch, picks=[("B", 0.7), ("A", 0.9), ("A", 0.9)], readiness=(4.2, 0.8))
     ticket.start(ws, None, "  Add a thing\n\nIt helps.  ")
-    assert load_ticket_state(ws).idea == "Add a thing\n\nIt helps."
-    with pytest.raises(EaseError, match="no runs yet"):  # build runs are separate
-        load_state(ws)
+    assert newest(ws).idea == "Add a thing\n\nIt helps."
+    assert build_runs(ws) == []  # build runs are separate
 
     assert ask(ws)["agent"] == "ease:interviewer"
     assert "This is round 1 of at most 5." in last_prompt(ws)
@@ -101,7 +105,7 @@ def test_shadow_run(ws, monkeypatch):
     assert action["questions"][0]["question"] == ticket.APPROVE_QUESTION
     send(ws, answers({ticket.APPROVE_QUESTION: "Approve"}))
 
-    assert load_ticket_state(ws).draft_log == [Verdict(4.2, 0.8, "approve")]
+    assert newest(ws).draft_log == [Verdict(4.2, 0.8, "approve")]
     assert (folder / "add-a-thing.md").read_text() == "mine"  # never overwritten
     path = folder / "add-a-thing-2.md"
     assert path.read_text() == TICKET
@@ -125,7 +129,7 @@ def test_live_run(ws, monkeypatch):
     assert ask(ws)["type"] == "spawn"
 
     assert send(ws, TICKET)["decision"] == "write"  # ready, so it's written without you
-    state = load_ticket_state(ws)
+    state = newest(ws)
     assert state.outcome == "written"
     assert [x.decided_by for x in state.questions] == ["jev", "you", "jev"]
     assert "Jev (live): readiness 4.5/5 (confidence 0.80)" in ask(ws)["summary"]
@@ -140,7 +144,7 @@ def test_live_low_score_gets_one_extra_round(ws, monkeypatch):
     assert "Jev scored this draft 2.0/5" in prompt
     assert "of at most 6" in prompt
     assert send(ws, TICKET)["decision"] == "ask_you"  # only once
-    assert load_ticket_state(ws).step == "approve"
+    assert newest(ws).step == "approve"
 
 
 def test_changes_go_back_then_cancel_writes_nothing(ws):
@@ -153,9 +157,9 @@ def test_changes_go_back_then_cancel_writes_nothing(ws):
     assert "The user asked for these changes: Also handle errors" in prompt
 
     send(ws, TICKET)  # the revised draft
-    assert load_ticket_state(ws).notes == ""
+    assert newest(ws).notes == ""
     send(ws, answers({ticket.APPROVE_QUESTION: "Cancel"}))
-    assert [v.answer for v in load_ticket_state(ws).draft_log] == ["change", "cancel"]
+    assert [v.answer for v in newest(ws).draft_log] == ["change", "cancel"]
     assert not (ws / CONTEXT_DIR / "projects" / "demo" / "tickets").exists()
     assert "Cancelled: no ticket written" in ask(ws)["summary"]
     with pytest.raises(EaseError, match="this ticket run is done"):
@@ -193,7 +197,7 @@ def test_bad_interviewer_replies_change_nothing(ws, bad, message):
     ticket.start(ws, None, "Add a thing")
     with pytest.raises(EaseError, match=message):
         send(ws, bad)
-    state = load_ticket_state(ws)
+    state = newest(ws)
     assert (state.questions, state.draft, state.step) == ([], "", "interview")
 
 

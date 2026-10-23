@@ -6,6 +6,7 @@ from engine.flow import parse_report, spawn
 from engine.models import Project, Question, TicketState, Verdict
 from engine.workspace import (
     CONTEXT_DIR, EaseError, load_config, load_project, new_ticket_state, project_and_mode, save_state, slugify,
+    ticket_runs,
 )
 
 MAX_ROUNDS = 5                     # rounds of questions; live mode may add one more
@@ -41,6 +42,14 @@ def start(ws, project_name: str | None, text: str) -> dict:
     state.jev_mode = jev_mode  # the run keeps this mode, even if config.json changes later
     save_state(ws, state)
     return {"run_id": state.run_id}
+
+
+def open_runs(ws) -> dict:
+    """The ticket runs that aren't done, for resuming one."""
+    return {"runs": [
+        {"run_id": run.run_id, "project": run.project, "title": run.idea.splitlines()[0][:80], "step": run.step}
+        for run in ticket_runs(ws) if run.step != "done"
+    ]}
 
 
 # ---------- next ----------

@@ -83,12 +83,6 @@ def new_state(project: str, title: str, body: str, branch: str | None = None) ->
     )
 
 
-def run_branches(ws: Path) -> set[str]:
-    """The branch of every build run so far."""
-    files = (ws / CONTEXT_DIR / "runs").glob("*/state.json")
-    return {json.loads(file.read_text())["branch"] for file in files}
-
-
 def new_ticket_state(project: str, idea: str) -> TicketState:
     """A fresh ticket run for an idea."""
     return TicketState(
@@ -113,19 +107,34 @@ def save_state(ws: Path, state: State | TicketState) -> None:
     os.replace(temp, folder / "state.json")
 
 
-def newest_state(folder: Path, what: str) -> str:
-    """state.json of the newest run in `folder` (run ids start with the time, so the newest sorts last)."""
-    names = sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []
-    if not names:
-        raise EaseError(f"no {what} yet")
-    return (folder / names[-1] / "state.json").read_text()
+def state_text(folder: Path, run_id: str) -> str:
+    """state.json of one run in `folder`."""
+    file = folder / run_id / "state.json"
+    if not file.exists():
+        raise EaseError(f"unknown run: {run_id}")
+    return file.read_text()
 
 
-def load_state(ws: Path) -> State:
-    """Load the newest build run."""
-    return state_from_json(newest_state(ws / CONTEXT_DIR / "runs", "runs"))
+def state_texts(folder: Path) -> list[str]:
+    """state.json of every run in `folder`, oldest first (run ids start with the time)."""
+    return [file.read_text() for file in sorted(folder.glob("*/state.json"))]
 
 
-def load_ticket_state(ws: Path) -> TicketState:
-    """Load the newest ticket run."""
-    return ticket_state_from_json(newest_state(ws / CONTEXT_DIR / "ticket-runs", "ticket runs"))
+def load_state(ws: Path, run_id: str) -> State:
+    """Load a build run by its id."""
+    return state_from_json(state_text(ws / CONTEXT_DIR / "runs", run_id))
+
+
+def load_ticket_state(ws: Path, run_id: str) -> TicketState:
+    """Load a ticket run by its id."""
+    return ticket_state_from_json(state_text(ws / CONTEXT_DIR / "ticket-runs", run_id))
+
+
+def build_runs(ws: Path) -> list[State]:
+    """Every build run, oldest first."""
+    return [state_from_json(text) for text in state_texts(ws / CONTEXT_DIR / "runs")]
+
+
+def ticket_runs(ws: Path) -> list[TicketState]:
+    """Every ticket run, oldest first."""
+    return [ticket_state_from_json(text) for text in state_texts(ws / CONTEXT_DIR / "ticket-runs")]
