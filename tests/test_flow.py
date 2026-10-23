@@ -7,7 +7,7 @@ import pytest
 from conftest import git_repo, write_project
 from engine import flow, jev
 from engine.models import Verdict
-from engine.workspace import CONTEXT_DIR, EaseError, load_state, new_state, save_state
+from engine.workspace import CONTEXT_DIR, EaseError, build_runs, load_state, new_state, save_state
 
 PASS = '```json\n{"verdict": "pass", "findings": []}\n```'
 
@@ -21,14 +21,19 @@ def plan_report(*repos):
     return "Here is the plan.\n```json\n" + json.dumps({"summary": "A plan", "tasks": tasks}) + "\n```"
 
 
+def newest(ws):
+    """The newest run, loaded from disk like the CLI does."""
+    return build_runs(ws)[-1]
+
+
 def send(ws, text):
-    """Reply to the newest run, loading its state from disk like the CLI does."""
-    return flow.reply(ws, load_state(ws), text)
+    """Reply to the newest run."""
+    return flow.reply(ws, newest(ws), text)
 
 
 def ask(ws):
     """Ask the newest run what to do next."""
-    return flow.next_action(ws, load_state(ws))
+    return flow.next_action(ws, newest(ws))
 
 
 def last_prompt(ws):
@@ -68,7 +73,7 @@ def fake_gh(tmp_path_factory, monkeypatch):
 
 def test_start_with_default_project(ws):
     flow.start(ws, None, "Add a login page\n\nWith a form.\n")
-    state = load_state(ws)
+    state = newest(ws)
     assert state.project == "demo"
     assert state.ticket_title == "Add a login page"
     assert state.ticket_body == "Add a login page\n\nWith a form."
@@ -80,7 +85,7 @@ def test_start_with_default_project(ws):
 def test_start_with_project_name(ws):
     write_project(ws, "other", {"app": {"path": "app", "checks": "true"}})
     flow.start(ws, "other", "Fix the bug")
-    state = load_state(ws)
+    state = newest(ws)
     assert state.project == "other"
     assert state.ticket_title == "Fix the bug"
 
@@ -89,29 +94,29 @@ def test_start_with_a_branch_name(ws):
     flow.start(ws, None, "Add a thing", "juan/joi-7-add-a-thing")
     send(ws, plan_report("app"))
     send(ws, "approve")
-    assert load_state(ws).branch == "juan/joi-7-add-a-thing"
+    assert newest(ws).branch == "juan/joi-7-add-a-thing"
     assert branch_of(ws / "app") == "juan/joi-7-add-a-thing"
 
 
 def test_happy_path(ws):
     start_run(ws)
-    assert load_state(ws).step == "approve"
+    assert newest(ws).step == "approve"
     assert "Task in app" in ask(ws)["message"]
     assert "no score" in ask(ws)["message"]
 
     send(ws, "Approve.")  # the words are compared without case and end punctuation
-    state = load_state(ws)
+    state = newest(ws)
     assert branch_of(ws / "app") == "ease-feature/add-a-thing"
     assert state.bases == {"app": "main"}
     assert ask(ws)["agent"] == "ease:worker"
 
     (ws / "app" / "ok.txt").write_text("done")  # what the worker does
     send(ws, "Built it.")
-    assert load_state(ws).checks_ok is True
+    assert newest(ws).checks_ok is True
 
     result = send(ws, PASS)
     assert result["decision"] == "accept"
-    state = load_state(ws)
+    state = newest(ws)
     assert state.step == "done"
     assert state.outcome == "done"
     assert state.prs == ["app: branch ease-feature/add-a-thing (no GitHub remote, no PR)"]
@@ -121,10 +126,10 @@ def test_happy_path(ws):
 def test_failed_checks_lead_to_fix(ws):
     start_building(ws)  # the worker writes nothing, so the checks fail
     send(ws, "Built it.")
-    assert load_state(ws).checks_ok is False
+    assert newest(ws).checks_ok is False
 
     assert send(ws, PASS)["decision"] == "fix"
-    state = load_state(ws)
+    state = newest(ws)
     assert state.step == "build"
     assert state.attempt == 2
     assert state.problems[0].startswith("Checks failed")
@@ -152,14 +157,14 @@ def test_three_failed_attempts_escalate(ws):
         send(ws, "Built it.")
         decisions.append(send(ws, PASS)["decision"])
     assert decisions == ["fix", "fix", "escalate"]
-    assert load_state(ws).outcome == "escalated"
+    assert newest(ws).outcome == "escalated"
     assert "Checks failed" in ask(ws)["summary"]  # the summary lists the problems
 
 
 def test_change_notes_keep_the_plan(ws):
     start_run(ws)
     send(ws, "split task 1")
-    state = load_state(ws)
+    state = newest(ws)
     assert state.step == "plan"
     assert state.tasks[0].title == "Task in app"
 
@@ -172,7 +177,7 @@ def test_change_notes_keep_the_plan(ws):
 def test_cancel(ws):
     start_run(ws)
     send(ws, "cancel")
-    state = load_state(ws)
+    state = newest(ws)
     assert state.step == "done"
     assert state.outcome == "cancelled"
 
@@ -181,19 +186,19 @@ def test_empty_reply_is_an_error(ws):
     start_run(ws)
     with pytest.raises(EaseError, match="empty reply"):
         send(ws, "  \n")
-    assert load_state(ws).step == "approve"
+    assert newest(ws).step == "approve"
 
 
 def test_bad_planner_report_leaves_state_unchanged(ws):
     flow.start(ws, None, "Add a thing")
-    before = load_state(ws)
+    before = newest(ws)
 
     with pytest.raises(EaseError, match="```json"):
         send(ws, "I made a plan but forgot the JSON.")
     with pytest.raises(EaseError, match="repo must be one of"):
         send(ws, plan_report("nonexistent"))
 
-    assert load_state(ws) == before
+    assert newest(ws) == before
 
 
 def test_repo_must_be_a_git_top_folder(ws):
@@ -203,7 +208,7 @@ def test_repo_must_be_a_git_top_folder(ws):
 
     with pytest.raises(EaseError, match="not the top folder of a git repo"):
         send(ws, "approve")
-    assert load_state(ws).step == "approve"
+    assert newest(ws).step == "approve"
 
 
 def test_dirty_repo_blocks_approve(ws):
@@ -213,8 +218,8 @@ def test_dirty_repo_blocks_approve(ws):
     with pytest.raises(EaseError, match="uncommitted changes"):
         send(ws, "approve")
 
-    assert load_state(ws).step == "approve"
-    assert load_state(ws).plan_log == []  # a refused approve isn't logged
+    assert newest(ws).step == "approve"
+    assert newest(ws).plan_log == []  # a refused approve isn't logged
     assert branch_of(ws / "app") == "main"
 
 
@@ -225,7 +230,7 @@ def test_each_plan_answer_is_logged_with_jevs_score(ws, monkeypatch):
     send(ws, "Split the task in two.")
     send(ws, plan_report("app"))
     send(ws, "approve")
-    assert load_state(ws).plan_log == [Verdict(2.5, 0.4, "change"), Verdict(4.1, 0.8, "approve")]
+    assert newest(ws).plan_log == [Verdict(2.5, 0.4, "change"), Verdict(4.1, 0.8, "approve")]
 
 
 def test_a_run_saved_before_plan_log_still_loads(ws):
@@ -234,7 +239,7 @@ def test_a_run_saved_before_plan_log_still_loads(ws):
     data = json.loads(file.read_text())
     del data["plan_log"]
     file.write_text(json.dumps(data))
-    assert load_state(ws).plan_log == []
+    assert newest(ws).plan_log == []
 
 
 def test_existing_branch_blocks_approve(ws):
@@ -243,7 +248,7 @@ def test_existing_branch_blocks_approve(ws):
 
     with pytest.raises(EaseError, match="already exists"):
         send(ws, "approve")
-    assert load_state(ws).step == "approve"
+    assert newest(ws).step == "approve"
 
 
 @pytest.mark.parametrize("checkout, message", [
@@ -253,13 +258,41 @@ def test_existing_branch_blocks_approve(ws):
 def test_repo_on_an_old_run_branch_or_detached_head_blocks_approve(ws, checkout, message):
     old = new_state("demo", "Old thing", "Old thing", "juan/joi-1-old-thing")
     old.run_id = "20000101-000000-old-thing"  # older than the run below
+    old.step = "done"
     save_state(ws, old)
     start_run(ws)
     subprocess.run(["git", *checkout], cwd=ws / "app", check=True, capture_output=True)
 
     with pytest.raises(EaseError, match=message):
         send(ws, "approve")
-    assert load_state(ws).step == "approve"
+    assert newest(ws).step == "approve"
+
+
+def test_each_session_drives_its_own_run(ws):
+    flow.start(ws, None, "Add a thing")
+    first = newest(ws).run_id
+    flow.start(ws, None, "Fix the bug")  # another session starts a run
+    second = newest(ws).run_id
+
+    flow.reply(ws, load_state(ws, first), plan_report("app"))
+    assert load_state(ws, first).step == "approve"
+    assert load_state(ws, second).step == "plan"
+    assert [run["run_id"] for run in flow.open_runs(ws)["runs"]] == [first, second]
+
+    flow.reply(ws, load_state(ws, first), "cancel")
+    assert [run["run_id"] for run in flow.open_runs(ws)["runs"]] == [second]  # done runs aren't listed
+
+
+def test_a_repo_another_run_is_building_in_is_busy(ws):
+    start_building(ws)
+    first = newest(ws).run_id
+    flow.start(ws, None, "Fix the bug")
+    send(ws, plan_report("app"))
+
+    with pytest.raises(EaseError, match=f"is busy with run {first}"):
+        send(ws, "approve")
+    assert newest(ws).step == "approve"
+    assert branch_of(ws / "app") == "ease-feature/add-a-thing"  # the first run keeps its branch
 
 
 def test_reviewer_fail_needs_a_finding(ws):
@@ -268,7 +301,7 @@ def test_reviewer_fail_needs_a_finding(ws):
 
     with pytest.raises(EaseError, match="at least one finding"):
         send(ws, '```json\n{"verdict": "fail", "findings": []}\n```')
-    assert load_state(ws).step == "review"
+    assert newest(ws).step == "review"
 
 
 def test_jev_is_shadow_only(ws, monkeypatch):
@@ -293,7 +326,7 @@ def test_jev_is_shadow_only(ws, monkeypatch):
     send(ws, "Built it.")
     send(ws, PASS)
 
-    state = load_state(ws)
+    state = newest(ws)
     assert state.outcome == "done"  # Jev said fix, but the code rule decided
     decision = state.log[-1]
     assert decision.code == "accept"
@@ -313,13 +346,13 @@ def test_two_tasks_in_two_repos(ws):
         "api": {"path": "api", "checks": "true"},
     })
     start_building(ws, repos=("app", "api"))
-    assert load_state(ws).bases == {"app": "main", "api": "main"}
+    assert newest(ws).bases == {"app": "main", "api": "main"}
 
     (ws / "app" / "ok.txt").write_text("done")
     send(ws, "Built task 1.")
     assert send(ws, PASS)["decision"] == "accept"
 
-    state = load_state(ws)
+    state = newest(ws)
     api_head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=ws / "api", capture_output=True, text=True
     ).stdout.strip()
@@ -344,7 +377,7 @@ def test_pr_is_opened_when_there_is_a_remote(ws, tmp_path_factory, fake_gh):
     send(ws, PASS)
 
     # gh prints a warning after the URL; the URL is still what we keep
-    assert load_state(ws).prs == ["app: https://github.com/me/app/pull/7"]
+    assert newest(ws).prs == ["app: https://github.com/me/app/pull/7"]
 
 
 # ---------- live mode ----------
@@ -387,7 +420,7 @@ def test_live_jev_can_ask_for_a_fix_on_a_pass_with_findings(ws, monkeypatch):
     result = send(ws, '```json\n{"verdict": "pass", "findings": ["app.py: rename x"]}\n```')
     assert result["decision"] == "fix"
     assert result["code"] == "accept"
-    state = load_state(ws)
+    state = newest(ws)
     assert state.step == "build"
     assert state.attempt == 2
     assert state.log[-1].code == "accept"
@@ -406,7 +439,7 @@ def test_live_jev_can_escalate_passing_work(ws, monkeypatch):
     result = send(ws, PASS)
     assert result["decision"] == "escalate"
     assert result["code"] == "accept"
-    assert load_state(ws).outcome == "escalated"
+    assert newest(ws).outcome == "escalated"
     summary = ask(ws)["summary"]
     assert "Jev mode: live" in summary
     assert "- Jev chose to escalate (confidence 0.70)." in summary
@@ -418,13 +451,12 @@ def test_bad_jev_mode_is_an_error_at_start(ws):
     )
     with pytest.raises(EaseError, match='jev_mode must be "shadow" or "live"'):
         flow.start(ws, None, "Add a thing")
-    with pytest.raises(EaseError, match="no runs yet"):  # nothing was started
-        load_state(ws)
+    assert build_runs(ws) == []  # nothing was started
 
 
 def test_a_ticket_file_gets_a_clean_title_and_the_reviewer_sees_it_all(ws):
     flow.start(ws, None, "# Add a thing\n\n## Acceptance criteria\n- AC1: When asked, then it answers.\n")
-    state = load_state(ws)
+    state = newest(ws)
     assert state.ticket_title == "Add a thing"
     assert state.branch == "ease-feature/add-a-thing"
 

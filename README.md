@@ -29,7 +29,9 @@ cd <workspace> && claude
 /ease:build Clean the practice repo from any boilerplate
 ```
 
-The ticket can be anything Claude can read: your own words, an issue number, an issue link, a ticket file, or what you just discussed. You never name the project; Claude works it out from your words and falls back to `default_project`. If a run stops, say "resume" or run `/ease:build resume`.
+The ticket can be anything Claude can read: your own words, an issue number, an issue link, a ticket file, or what you just discussed. You never name the project; Claude works it out from your words and falls back to `default_project`. If a run stops, say "resume" or run `/ease:build resume`. Claude picks up the session's own run, or, in a new session, lists the runs that aren't done and takes the one you name.
+
+Each session drives its own run by its run id, so several sessions can work at once: tickets and plans side by side, and builds in different repos. Two builds can't share a repo, because a build works in your normal checkout. Approving a plan for a repo that another run is building in fails with "busy with run …", and you approve again once that run is done.
 
 ## Tickets
 
@@ -104,7 +106,7 @@ In shadow mode Jev only watches: the code rule decides. In live mode Jev decides
 - `engine/jev.py` asks Jev its questions.
 - `engine/flow.py` holds the steps, the code rule and the live rule.
 - `engine/ticket.py` holds the ticket flow: the interview, the question rule and the ready rule.
-- `engine/cli.py` is the `start`, `next` and `reply` commands, for build and, after `ticket`, for tickets.
+- `engine/cli.py` is the `start`, `runs`, `next <run_id>` and `reply <run_id>` commands, for build and, after `ticket`, for tickets.
 
 Run the tests from a fresh clone:
 

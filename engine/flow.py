@@ -9,8 +9,7 @@ from engine.shell import (
     is_dirty, open_pr, run_checks, switch_to_branch,
 )
 from engine.workspace import (
-    EaseError, load_config, load_project, new_state, project_and_mode, run_branches, save_state,
-    state_dir,
+    EaseError, build_runs, load_config, load_project, new_state, project_and_mode, save_state, state_dir,
 )
 
 PLAN_SHAPE = """```json
@@ -36,6 +35,14 @@ def start(ws, project_name: str | None, text: str, branch: str | None = None) ->
     state.jev_mode = jev_mode  # the run keeps this mode, even if config.json changes later
     save_state(ws, state)
     return {"run_id": state.run_id}
+
+
+def open_runs(ws) -> dict:
+    """The build runs that aren't done, for resuming one."""
+    return {"runs": [
+        {"run_id": run.run_id, "project": run.project, "title": run.ticket_title, "step": run.step}
+        for run in build_runs(ws) if run.step != "done"
+    ]}
 
 
 # ---------- next ----------
@@ -123,7 +130,9 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
         state.step = "plan"
     else:
         repos = list(dict.fromkeys(task.repo for task in state.tasks))  # no duplicates, in order
-        old_branches = run_branches(ws)
+        runs = build_runs(ws)
+        old_branches = {run.branch for run in runs}
+        busy = {run.branch: run for run in runs if run.step != "done" and run.run_id != state.run_id}
         for repo in repos:
             path = project.repos[repo].path
             if not (Path(path) / ".git").exists():
@@ -131,6 +140,12 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
             if is_dirty(path):
                 raise EaseError(f"{path} has uncommitted changes. Commit or stash them, then approve again.")
             branch = current_branch(path)
+            if branch in busy:  # another run is building here
+                other = busy[branch]
+                raise EaseError(
+                    f"{path} is busy with run {other.run_id} ({other.ticket_title}). Approve again once that "
+                    "run is done, or, if you dropped it, check out the branch you want the work based on."
+                )
             if branch == "HEAD" or branch in old_branches:  # a run's branch, or no branch at all
                 where = "a detached HEAD" if branch == "HEAD" else branch
                 raise EaseError(

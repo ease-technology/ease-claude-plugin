@@ -21,16 +21,20 @@ python3 "<skill base dir>/../../bin/ease-engine" ticket start [project] <<'EASE_
 EASE_IDEA
 ```
 
-Show the run id once. "resume" goes straight to the loop.
+The engine answers with the run id. Show it once. Every `ticket next` and `ticket reply` names this run id, so runs started in other sessions are never touched.
+
+## Resume
+
+"resume" continues a ticket run. If this conversation already has a run id, use it. Otherwise run `ticket runs`, which lists the ticket runs that aren't done. Take the only one, or the one the user's words point to by its title or id. If more than one fits, ask the user which. If none is listed, say so and stop. Then go to the loop.
 
 ## The loop
 
-Run `ticket next`, do what it says, then run `ticket reply`, and repeat. Each `next` returns one of three types.
+Run `ticket next <run_id>`, do what it says, then run `ticket reply <run_id>`, and repeat. Each `next` returns one of three types.
 
 **spawn.** Call the Agent tool with `subagent_type` set to the `agent` value and the prompt set to the `prompt` value, exactly as given. Wait for it to finish. Reply with its final message, unchanged:
 
 ```bash
-python3 "<skill base dir>/../../bin/ease-engine" ticket reply <<'EASE_REPLY'
+python3 "<skill base dir>/../../bin/ease-engine" ticket reply <run_id> <<'EASE_REPLY'
 <the agent's final message>
 EASE_REPLY
 ```
@@ -38,7 +42,7 @@ EASE_REPLY
 **ask_user.** Show `message` as it is, when it isn't empty. Then call AskUserQuestion once, with `questions` exactly as given. Reply with what the user answered, keyed by each question's text: the option label they picked, or their own words for "Other".
 
 ```bash
-python3 "<skill base dir>/../../bin/ease-engine" ticket reply <<'EASE_REPLY'
+python3 "<skill base dir>/../../bin/ease-engine" ticket reply <run_id> <<'EASE_REPLY'
 {"answers": {"<question text>": "<their answer>"}}
 EASE_REPLY
 ```
@@ -47,4 +51,4 @@ EASE_REPLY
 
 ## Rules
 
-Never edit code, run git or write the ticket yourself; the engine writes it. Run one agent at a time. Never edit files in `.ease-context/ticket-runs/`. Never repeat a `reply`. If a result is unclear, run `ticket next`.
+Never edit code, run git or write the ticket yourself; the engine writes it. Run one agent at a time. Never edit files in `.ease-context/ticket-runs/`. Never repeat a `reply`. If a result is unclear, run `ticket next <run_id>`.

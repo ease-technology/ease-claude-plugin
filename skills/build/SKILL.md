@@ -27,16 +27,20 @@ python3 "<skill base dir>/../../bin/ease-engine" start [project] [--branch <name
 EASE_TICKET
 ```
 
-Show the run id once. `/ease:build resume` goes straight to the loop.
+The engine answers with the run id. Show it once. Every `next` and `reply` names this run id, so runs started in other sessions are never touched.
+
+## Resume
+
+`/ease:build resume`, or "resume", continues a run. If this conversation already has a run id, use it. Otherwise run `runs`, which lists the build runs that aren't done. Take the only one, or the one the user's words point to by its title or id. If more than one fits, ask the user which. If none is listed, say so and stop. Then go to the loop.
 
 ## The loop
 
-Run `next`, do what it says, then run `reply`, and repeat. Each `next` returns one of three types.
+Run `next <run_id>`, do what it says, then run `reply <run_id>`, and repeat. Each `next` returns one of three types.
 
 **spawn.** Call the Agent tool with `subagent_type` set to the `agent` value and the prompt set to the `prompt` value, exactly as given. Wait for it to finish. Reply with its final message, unchanged, through a quoted heredoc so nothing in it is expanded:
 
 ```bash
-python3 "<skill base dir>/../../bin/ease-engine" reply <<'EASE_REPLY'
+python3 "<skill base dir>/../../bin/ease-engine" reply <run_id> <<'EASE_REPLY'
 <the agent's final message>
 EASE_REPLY
 ```
@@ -49,4 +53,4 @@ After a reviewer's reply, print one line: `Task N: <decision> (code rule: <code>
 
 ## Rules
 
-Never edit code, run git or run checks yourself; reading the ticket at the start is the one exception. Run one agent at a time. Never edit files in `.ease-context/runs/`. Never repeat a `reply`. If a result is unclear, run `next`.
+Never edit code, run git or run checks yourself; reading the ticket at the start is the one exception. Run one agent at a time. Never edit files in `.ease-context/runs/`. Never repeat a `reply`. If a result is unclear, run `next <run_id>`.
