@@ -72,14 +72,14 @@ def slugify(text: str) -> str:
 
 
 def new_state(project: str, title: str, body: str, branch: str | None = None) -> State:
-    """A fresh run for a ticket. With no branch name, the work goes on ease-feature/<slug>."""
+    """A fresh run for a ticket. With no branch name, the branch is the slug."""
     slug = slugify(title)
     return State(
         run_id=time.strftime("%Y%m%d-%H%M%S") + "-" + slug,
         project=project,
         ticket_title=title,
         ticket_body=body,
-        branch=branch or "ease-feature/" + slug,
+        branch=branch or slug,
     )
 
 

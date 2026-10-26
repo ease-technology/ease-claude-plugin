@@ -77,7 +77,7 @@ def test_start_with_default_project(ws):
     assert state.project == "demo"
     assert state.ticket_title == "Add a login page"
     assert state.ticket_body == "Add a login page\n\nWith a form."
-    assert state.branch == "ease-feature/add-a-login-page"
+    assert state.branch == "add-a-login-page"
     assert state.jev_mode == "shadow"  # the default
     assert state.step == "plan"
 
@@ -106,7 +106,7 @@ def test_happy_path(ws):
 
     send(ws, "Approve.")  # the words are compared without case and end punctuation
     state = newest(ws)
-    assert branch_of(ws / "app") == "ease-feature/add-a-thing"
+    assert branch_of(ws / "app") == "add-a-thing"
     assert state.bases == {"app": "main"}
     assert ask(ws)["agent"] == "ease:worker"
 
@@ -119,7 +119,7 @@ def test_happy_path(ws):
     state = newest(ws)
     assert state.step == "done"
     assert state.outcome == "done"
-    assert state.prs == ["app: branch ease-feature/add-a-thing (no GitHub remote, no PR)"]
+    assert state.prs == ["app: branch add-a-thing (no GitHub remote, no PR)"]
     assert "Outcome: done" in ask(ws)["summary"]
 
 
@@ -243,7 +243,7 @@ def test_a_run_saved_before_plan_log_still_loads(ws):
 
 
 def test_existing_branch_blocks_approve(ws):
-    subprocess.run(["git", "branch", "ease-feature/add-a-thing"], cwd=ws / "app", check=True)
+    subprocess.run(["git", "branch", "add-a-thing"], cwd=ws / "app", check=True)
     start_run(ws)
 
     with pytest.raises(EaseError, match="already exists"):
@@ -292,7 +292,7 @@ def test_a_repo_another_run_is_building_in_is_busy(ws):
     with pytest.raises(EaseError, match=f"is busy with run {first}"):
         send(ws, "approve")
     assert newest(ws).step == "approve"
-    assert branch_of(ws / "app") == "ease-feature/add-a-thing"  # the first run keeps its branch
+    assert branch_of(ws / "app") == "add-a-thing"  # the first run keeps its branch
 
 
 def test_reviewer_fail_needs_a_finding(ws):
@@ -458,7 +458,7 @@ def test_a_ticket_file_gets_a_clean_title_and_the_reviewer_sees_it_all(ws):
     flow.start(ws, None, "# Add a thing\n\n## Acceptance criteria\n- AC1: When asked, then it answers.\n")
     state = newest(ws)
     assert state.ticket_title == "Add a thing"
-    assert state.branch == "ease-feature/add-a-thing"
+    assert state.branch == "add-a-thing"
 
     send(ws, plan_report("app"))
     send(ws, "approve")
