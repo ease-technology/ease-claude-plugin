@@ -24,7 +24,7 @@ REVIEW_SHAPE = """```json
 
 def start(ws, project_name: str | None, text: str, branch: str | None = None) -> dict:
     """Begin a run. With no project name, use default_project from config.json.
-    With no branch name, the work goes on ease-feature/<slug of the title>."""
+    With no branch name, the branch is the slug of the title."""
     project_name, jev_mode = project_and_mode(ws, project_name)
     text = text.strip()
     if not text:
@@ -169,7 +169,7 @@ def reply_build(state: State, project: Project) -> dict:
     """The worker's message is free text. Run the checks, then commit everything (even if they fail)."""
     task, repo = current_task(state, project)
     state.checks_ok, state.checks_output = run_checks(repo.path, repo.checks)
-    commit_all(repo.path, f"ease: {task.title}")  # after the checks, so it has what they changed
+    commit_all(repo.path, task.title)  # after the checks, so it has what they changed
     state.step = "review"
     return {"ok": True}
 
