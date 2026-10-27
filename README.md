@@ -50,6 +50,12 @@ Ticket runs are kept in `.ease-context/ticket-runs/`. Add it to your workspace's
 
 `/ease:build` and `/ease:ticket` read a project's `context.md` on their own. To have it in an ordinary conversation, run `/ease:load-context <project>`, or `/ease:load-context` alone for every project in the workspace.
 
+## Handoff
+
+When a session's context passes about 40% of the window, run `/ease:handoff`, optionally followed by why you are stopping. It writes where the feature stands to `.ease-context/handoffs/<slug>.md`. The slug is the ticket's slug when the feature has a ticket, and otherwise a short name of the feature. A new handoff for the same feature overwrites the old one. Then it prints a prompt to paste into a fresh session started in the workspace. When an ease build or ticket run for the feature isn't done, the prompt resumes that run by its id. It changes nothing else: no commit, push, stash or PR.
+
+Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.gitignore`, next to `.ease-context/runs/` and `.ease-context/ticket-runs/`.
+
 ## Change the plugin
 
 Try local changes without installing: `claude --plugin-dir <path to ease-claude-plugin>`. To release them, bump `version` in `.claude-plugin/plugin.json` and push. Installed copies only update when the version changes.
@@ -64,6 +70,7 @@ It lives in your workspace, not in the plugin.
   projects/<name>/project.json   {"repos": {"practice": {"path": "practice", "checks": "npm run lint && npm run build"}}}
   projects/<name>/context.md     optional notes for the planner
   runs/<run_id>/state.json       run state, including the Jev log
+  handoffs/<slug>.md             where a feature stands, written by /ease:handoff
 ```
 
 `checks` is any shell command the repo already uses, in any language. `default_project` is used when Claude can't tell the project from your words. `jev_mode` is `"shadow"` (the default) or `"live"`; anything else is an error when a run starts. `typesafe_api_key` turns Jev on; see [Jev](#jev).
