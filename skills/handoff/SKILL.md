@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Saves where a feature stands to .ease-context/handoffs/<feature-slug>.md, then prints a ready-to-copy prompt that starts a fresh session from that file. User-invoked only, as /ease:handoff.
+description: Saves where the session's work stands to .ease-context/handoffs/<name>.md, then prints a ready-to-copy prompt that starts a fresh session from that file. User-invoked only, as /ease:handoff.
 argument-hint: "[optional note about why you're stopping]"
 disable-model-invocation: true
 ---
@@ -9,8 +9,8 @@ disable-model-invocation: true
 
 Two outputs, in this order:
 
-1. **A handoff file** so the feature can be resumed cold, by you or by a future session, without re-deriving anything.
-2. **A prompt in the chat** that the user copies into the next agent. It points at the file and carries enough to start if the file cannot be read.
+1. **A handoff file** so the session's work can be resumed cold, by you or by a future session, without re-deriving anything.
+2. **A prompt in the chat** that the user copies into the next agent. It points at the file.
 
 The file is the record. The prompt is the pointer. Never put something in the prompt that is not in the file.
 
@@ -20,17 +20,17 @@ It writes exactly one file and changes nothing else: no commit, no push, no stas
 
 Find the workspace: the current folder, or the nearest folder above it, that contains `.ease-context/`. If there is none, say so in one line and stop, writing nothing.
 
-Name the feature with a slug, taking the first of these that applies:
+Name the handoff, taking the first of these that applies:
 
-1. The feature has a ticket at `.ease-context/projects/<name>/tickets/<slug>.md`, because this session built from it or wrote it, or the open run was started from its text: use that file name without `.md`.
-2. This session was started from a handoff prompt: reuse that prompt's handoff file path as it is.
-3. Otherwise, name the feature in a few words as a lowercase, hyphenated slug, like `add-a-login-page`.
+1. This session was started from a handoff prompt: reuse that prompt's `Handoff file:` path as it is, even if the session also worked on a ticket. Read that file before overwriting it, because section 3 carries its Documents and Session story forward. An earlier file without those sections carries nothing.
+2. The session has exactly one ticket, one it wrote, built or relied on, and its file exists at `.ease-context/projects/<project>/tickets/<slug>.md`: use that file name without `.md`.
+3. Several tickets, none, or one that is not written yet: a short lowercase-hyphenated name for the work, like `add-a-login-page`.
 
-The handoff path is `<workspace>/.ease-context/handoffs/<slug>.md`, or the reused path in case 2. Run `mkdir -p` on its folder first. If a handoff already exists at that path, **overwrite it**: the newest state is the only state worth keeping.
+The handoff path is `<workspace>/.ease-context/handoffs/<name>.md`, or the reused path in case 1. Run `mkdir -p` on its folder first. If a handoff already exists at that path, **overwrite it**.
 
 ## 2. Gather
 
-**Open run.** Run both of these from the workspace; they only read:
+**Open runs.** Run both of these from the workspace; they only read:
 
 ```bash
 python3 "<skill base dir>/../../bin/ease-engine" runs
@@ -40,21 +40,34 @@ python3 "<skill base dir>/../../bin/ease-engine" runs
 python3 "<skill base dir>/../../bin/ease-engine" ticket runs
 ```
 
-If this conversation has an ease build or ticket run id, use it. Otherwise take the run whose title or id matches the feature. A run counts as open only if one of those commands lists it. For a build run, read `<workspace>/.ease-context/runs/<run_id>/state.json` only for `project` and `branch`, and never copy its plan or tasks.
+A run counts as open when one of those commands lists it and this conversation has its id or its title matches one of the session's tickets. Runs from other sessions are left out. For each build run of this session, open or finished, read `<workspace>/.ease-context/runs/<run_id>/state.json` only for `project` and `branch`, and never copy its plan or tasks.
 
-**Repos the feature touched.** For a build run, the repos in `<workspace>/.ease-context/projects/<project>/project.json` (each `path` is relative to the workspace) where `git -C <path> branch --list <branch>` prints a line. Add every repo this session worked in. Name each repo by its absolute path.
+**Touched repos.** The repos in `<workspace>/.ease-context/projects/<project>/project.json` of each build run of this session (each `path` is relative to the workspace) where `git -C <path> branch --list <branch>` prints a line, plus every repo the session worked in. Name each repo by its absolute path.
 
 **Per repo**, read only:
 
 - Branch: `git -C <path> rev-parse --abbrev-ref HEAD`
+- HEAD: `git -C <path> rev-parse --short HEAD`, which the State line records so the next agent can tell what changed
 - Uncommitted files: the line count of `git -C <path> status --porcelain`, plus `git -C <path> diff --stat` and `git -C <path> diff --cached --stat` for the shape of the work in progress
 - Unpushed commits: `git -C <path> rev-list --count HEAD --not --remotes`, or `no remote` (counted as none) when `git -C <path> remote` prints nothing
 - Open PR: `gh pr list --head <branch> --json url --jq '.[0].url'`, run inside the repo folder, or `none` when it prints nothing, the repo has no remote, or gh fails
 - Linked worktree: when `git -C <path> rev-parse --git-common-dir` points outside the repo; the folder that holds that common dir is the main checkout
 
-**From the conversation:** the goal (the outcome wanted, not a summary of tool calls), what was decided and why, what comes next, and what to avoid.
+**Per ticket**, read only, because a ticket under review is usually not on the checked-out branch. Its branch comes from the `state.json` of its build run or from the conversation; a ticket with neither has nothing to look up. In each touched repo and each repo in the `project.json` of the ticket's project, run `git -C <path> branch --list <branch>`. Inside each repo where that prints a line, run `gh pr list --head <branch> --json url --jq '.[0].url'`, with `none` in the same cases as Open PR above.
 
-Nothing is in flight when all three hold: no touched repo has uncommitted files or unpushed commits, no ease run for the feature is open, and the session has no stated goal. Then write no file, print no prompt, say so in one line and stop.
+**From the conversation:**
+
+- The goal: the outcome wanted, not a summary of tool calls.
+- Every ticket the session wrote, built or relied on, with where it stands and who it waits on.
+- The closing summary: the last summary of what is left, written by the user or by the agent at the user's request, just before the handoff.
+- The next steps, each with its owner, what it waits on and any stated deadline.
+- Every document and ticket written or relied on, from the conversation and any earlier handoff, never from a folder scan.
+- The `context.md` of each project worked in, only when `<workspace>/.ease-context/projects/<project>/context.md` exists, since it is optional and a missing one would be reported as unreadable.
+- Each decision, with its reason.
+- The session's story.
+- What to avoid.
+
+Nothing is in flight when all three hold: no touched repo has uncommitted files or unpushed commits, no run is open under the rule above, and the session has no stated goal. Then write no file, print no prompt, say so in one line and stop.
 
 ## 3. Write the file
 
