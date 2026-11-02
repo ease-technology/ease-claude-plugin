@@ -71,29 +71,40 @@ Nothing is in flight when all three hold: no touched repo has uncommitted files 
 
 ## 3. Write the file
 
-Keep it under 60 lines. Written for a reader with zero context.
+Written for a reader with zero context. Keep the sections in the order below, so the only section that gets shortened comes last.
+
+After writing, run `wc -c` on the file. Bytes divided by 4 must be at most 10% of your context window: 100,000 tokens (400,000 bytes) on a 1M window, 20,000 tokens (80,000 bytes) on a 200k window or when you can't tell. When it is over, shorten Session story, oldest part first, rewrite the file and measure again. No other section is cut to fit. It is a ceiling, not a target.
 
 ```markdown
-# Handoff: <feature name>
+# Handoff: <short name of the work>
 
 **Stopped:** <date and time> · **Why:** <$ARGUMENTS, or "context switch">
-
-**Ticket:** <absolute path>
 
 ## Goal
 <One paragraph. The outcome wanted, not the steps taken.>
 
+## Where we stopped
+<The closing summary, word for word.>
+
+## Tickets
+- <title> · <absolute path, or "not written yet"> · <where it stands> · branch `<branch>` · PR: <url> · Waits on: <the user, a named teammate, the agent, or nobody>
+
+## Next
+1. <the literal next action, with file:line where known> · Owner: <who> · Waits on: <what it waits on, or "nothing"> · Deadline: <as the conversation stated it, or "none stated">
+2. ...
+
 ## State
-- <absolute path>: branch `<branch>`, <N> uncommitted file(s), <N> unpushed commit(s), PR: <url or "none">
+- <absolute path>: branch `<branch>` at `<sha>`, <N> uncommitted file(s), <N> unpushed commit(s), PR: <url or "none">
 - ease <build|ticket> run `<run_id>` is not done: resume it with `/ease:<build|ticket> resume <run_id>`
+
+## Documents
+- <absolute path>
+
+## Decisions
+- <each decision, with its reason>
 
 ## Done
 - <specific, verifiable things that landed>
-- <each decision, with its reason>
-
-## Next
-1. <the literal next action, with file:line where known>
-2. ...
 
 ## Landmines
 <Things that cost time and will cost it again: failing test that is unrelated,
@@ -101,13 +112,20 @@ a migration that must run first, an env var, a decision already rejected and why
 
 ## Verify
 <command that proves the work is correct>
+
+## Session story
+<In order: what was asked, what was tried and dropped, where the direction changed and why, and what the user cared about.>
 ```
 
-- Write the `**Ticket:**` line only when the feature has a ticket.
-- State has one line per touched repo. Write `no remote` in place of the unpushed count when the repo has none. Add `linked worktree of <main checkout path>` to the line of a linked worktree, and `uncommitted changes are work in progress; do not discard them` to the line of a repo with uncommitted files. With no touched repo, write `- no repo touched yet`.
-- Write the run line only when an ease run is open. With an open run, Done never lists the run's plan or tasks, because the engine keeps them, and Next item 1 is to resume the run by its id, not to start a new run.
+- **Where we stopped** holds the closing summary word for word, with no reformatting. The only permitted change is replacing a secret value with the name of its env var or key. Leave the section out when there is no closing summary.
+- **Tickets** has one bullet per ticket. Write `not written yet` in place of the path of a ticket with no file. Leave out a branch or PR it does not have, and give one PR per repo when it has several. With no tickets, write `- none`.
+- **Next** is a numbered list in the order the work happens. A deadline never appears unless the conversation stated it. With a closing summary, Next has the same steps in the same order and adds none.
+- **State** has one line per touched repo. Write `no remote` in place of the unpushed count when the repo has none. Add `linked worktree of <main checkout path>` to the line of a linked worktree, and `uncommitted changes are work in progress; do not discard them` to the line of a repo with uncommitted files. With no touched repo, write `- no repo touched yet`. State is the only home of these notes, so none is left out. Write one resume line per open run, with its exact command.
+- **Documents** lists every document and ticket the session wrote or relied on, plus the `context.md` of each project it worked in when that file exists. It never lists `.ease-context/config.json`. When the session started from a handoff, the earlier list is carried forward. Document text is never copied into the file.
+- **Done** never lists a run's plan or tasks, because the engine keeps them.
+- **Session story** carries the earlier story first when the session started from a handoff, and this session's part follows it. A second `/ease:handoff` in the same session rewrites this session's part instead of repeating it. When an earlier part is missing because of compaction or the ceiling, the story's first line says so.
 
-Never write a secret into the file: name the env var or the key, not its value.
+Never write a secret anywhere in the file: not in Goal, Where we stopped, Tickets, Next, State, Documents, Decisions, Done, Landmines, Verify or Session story, and that includes the word-for-word summary and the story. Only the name of the env var or key is ever written, never its value.
 
 ## 4. Build the prompt
 
@@ -128,8 +146,8 @@ Goal: <the Goal section in one or two sentences>
 Repos:
 <each repo's State line, copied from the file>
 
-Start with: <Next item 1, word for word, with its file:line>
-Then: <Next item 2, if there is one>
+Start with: <the first step under Next, word for word, with its file:line>
+Then: <the second step under Next, if there is one>
 
 Watch out for: <each landmine in one sentence; write "nothing known" if the section is empty>
 
