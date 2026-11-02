@@ -52,7 +52,7 @@ Ticket runs are kept in `.ease-context/ticket-runs/`. Add it to your workspace's
 
 ## Handoff
 
-When a session's context passes about 40% of the window, run `/ease:handoff`, optionally followed by why you are stopping. It writes where the feature stands to `.ease-context/handoffs/<slug>.md`. The slug is the ticket's slug when the feature has a ticket, and otherwise a short name of the feature. A new handoff for the same feature overwrites the old one. Then it prints a prompt to paste into a fresh session started in the workspace. When an ease build or ticket run for the feature isn't done, the prompt resumes that run by its id. It changes nothing else: no commit, push, stash or PR.
+When a session's context passes about 40% of the window, run `/ease:handoff`, optionally followed by why you are stopping. It writes where the session's work stands to `.ease-context/handoffs/<name>.md`. A session started from a handoff reuses that handoff's path. Otherwise `<name>` is the ticket's slug when the session has one ticket, and a short name for the work when it doesn't. A new handoff to the same path overwrites the old one. The file lists tickets, next steps with owner, waits on and deadline, documents, decisions and the session's story, up to 10% of the writer's window. Then it prints a prompt to paste into a fresh session started in the workspace. The prompt makes the next agent read the file and every document it lists, check git, report where things stand and then wait, also when an ease run is open. The report names the resume command, and the run continues only when you say so. `/ease:handoff` changes nothing else: no commit, push, stash or PR.
 
 Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.gitignore`, next to `.ease-context/runs/` and `.ease-context/ticket-runs/`.
 
@@ -70,7 +70,7 @@ It lives in your workspace, not in the plugin.
   projects/<name>/project.json   {"repos": {"practice": {"path": "practice", "checks": "npm run lint && npm run build"}}}
   projects/<name>/context.md     optional notes for the planner
   runs/<run_id>/state.json       run state, including the Jev log
-  handoffs/<slug>.md             where a feature stands, written by /ease:handoff
+  handoffs/<name>.md             where a session's work stands, written by /ease:handoff
 ```
 
 `checks` is any shell command the repo already uses, in any language. `default_project` is used when Claude can't tell the project from your words. `jev_mode` is `"shadow"` (the default) or `"live"`; anything else is an error when a run starts. `typesafe_api_key` turns Jev on; see [Jev](#jev).
