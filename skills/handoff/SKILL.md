@@ -12,7 +12,7 @@ Two outputs, in this order:
 1. **A handoff file** so the session's work can be resumed cold, by you or by a future session, without re-deriving anything.
 2. **A prompt in the chat** that the user copies into the next agent. It points at the file.
 
-The file is the record. The prompt is the pointer. Never put something in the prompt that is not in the file.
+The file is the record. The prompt is the pointer. Never put a fact about the work in the prompt.
 
 It writes exactly one file and changes nothing else: no commit, no push, no stash, no pull request, no tracker comment. Every git and gh command it runs only reads. Never read `.ease-context/config.json`: it holds the API key.
 
@@ -129,43 +129,38 @@ Never write a secret anywhere in the file: not in Goal, Where we stopped, Ticket
 
 ## 4. Build the prompt
 
-The reader is an agent with none of this conversation, possibly a different tool. Write it in full sentences, addressed to that agent. No caveman fragments, no "as discussed", no reference to this session.
-
-Fill this template from the file you just wrote. Every line must be true of the file; drop a line whose value is "none" unless the template says otherwise.
+The reader is an agent with none of this conversation, possibly a different tool. Copy this template word for word and fill in only the two paths. The only other change is the last line, as the rules below say.
 
 ```text
-You are picking up work in progress on <feature name>.
+You are taking over work from an earlier session. Read everything below, report where things stand, and wait for me.
 
 Working directory: <absolute workspace path>
 Handoff file: <absolute handoff path>
 
-Read the handoff file first. It has the goal, what is done, what is next, and what to avoid. Then run `git status` and `git log --oneline -5` in each repo below. If git has moved on since the handoff was written (<date and time>), trust git and tell me what differs before you continue.
+Before your first reply, do these in order and change nothing in any file or repo:
+1. Read the handoff file in full, past any tool's default length limit. If you cannot read it, say so in one line with its path, report no state, and stop.
+2. Read every path under Documents in full the same way. If one cannot be read, go on and name its path in your reply.
+3. Run `git status` and `git log --oneline -5` in each repo under State.
 
-Goal: <the Goal section in one or two sentences>
+Your first reply gives:
+- each ticket's state and who it waits on;
+- the next steps in order, each with its owner, what it waits on and its deadline;
+- each open ease run with its exact resume command;
+- what git shows has changed since the handoff was written.
 
-Repos:
-<each repo's State line, copied from the file>
+After that reply, stop and wait for me. Start no step and run no `/ease:build` or `/ease:ticket`, even when the first step is yours and waits on nothing, and also when an ease run is open.
 
-Start with: <the first step under Next, word for word, with its file:line>
-Then: <the second step under Next, if there is one>
-
-Watch out for: <each landmine in one sentence; write "nothing known" if the section is empty>
-
-It is done when: <the Verify command> passes.
-
-Do not redo anything listed under Done.
 Do not push, merge, or open a pull request until I say so.
 ```
 
 Rules for the prompt:
 
-- **An open run is resumed, not restarted.** `Start with:` is `/ease:build resume <run_id>` or `/ease:ticket resume <run_id>`, followed by `Do not start a new run.` When the prompt names a build run, the last line is exactly `Apart from the ease run, do not push, merge, or open a pull request until I say so.`, because the run pushes and opens its own PRs.
-- **Absolute paths only, in every repo line.** The next agent may start in another folder. Never write `~`.
-- **A worktree is named as one.** A linked worktree's repo line keeps `linked worktree of <main checkout path>`, so the next agent works there, not in the main checkout.
-- **Uncommitted work is called out.** A repo line with uncommitted files keeps `uncommitted changes are work in progress; do not discard them`.
-- **At most 25 lines.** If it needs more, the detail belongs in the file.
-- **No secrets, and nothing the file does not say.** `.ease-context/config.json` is never read, so its key can never reach the prompt.
+- **At most 25 lines.** The detail belongs in the file.
+- **Absolute paths only.** The next agent may start in another folder. Never write `~`.
+- **Only the pointer.** No goal, ticket state, next step, repo line, resume command, `Start with:`, `Then:` or `It is done when:`. The file holds all of those.
+- **No secrets.** `.ease-context/config.json` is never read, so its key can never reach the prompt.
 - **The last line stays.** The next agent starts with no approval for anything outward-facing. The user can delete the line when pasting.
+- **An open build run changes the last line's wording.** When the file lists an open build run, the last line is exactly `Apart from the ease run, do not push, merge, or open a pull request until I say so.`, because the run pushes and opens its own PRs. An open ticket run keeps the plain last line.
 
 ## 5. Report
 
