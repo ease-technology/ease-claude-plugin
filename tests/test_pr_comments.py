@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 
 from conftest import write_project
-from engine import jev, pr_comments
+from engine import jev, pr_comments, shell
 from engine.cli import main
 from engine.models import Decision, PrState, Task, Thread, Verdict
 from engine.workspace import (
     CONTEXT_DIR, EaseError, build_runs, load_pr_state, new_pr_state, new_state, new_ticket_state, pr_runs, save_state,
     state_dir, ticket_runs,
 )
-from test_shell import comment, comments_response, thread, threads_page
+from test_shell import comment, comments_response, thread, threads_page, value_of
 
 
 def pr_run():
@@ -112,8 +112,9 @@ def commit_file(repo, name, text, message):
 
 
 @pytest.fixture
-def checkout(ws):
-    """`app` on the PR's branch, with a.py of 30 numbered lines, pushed to a bare origin."""
+def checkout(ws, scripted_gh):
+    """`app` on the PR's branch, with a.py of 30 numbered lines, pushed to a bare origin. gh is faked with it, so a
+    test whose run reaches the push can't resolve anything on GitHub."""
     repo = ws / "app"
     git_out(ws, "clone", "-q", "--bare", "app", "origin.git")
     git_out(repo, "remote", "add", "origin", str(ws / "origin.git"))
@@ -1244,6 +1245,7 @@ def test_every_skip_ends_the_run_with_no_commit_or_push(ws, checkout, scripted_g
 # ---------- fixing each thread through the build gate ----------
 
 NO_CHANGE = "No change was made: this attempt produced no commit."
+RESOLVED = {"match": "resolveReviewThread", "stdout": {"data": {"resolveReviewThread": {"thread": {"id": "T"}}}}}
 PASSED = '```json\n{"verdict": "pass", "findings": []}\n```'
 PASSED_WITH_NOTE = '```json\n{"verdict": "pass", "findings": ["a.py: rename x"]}\n```'
 FAILED = '```json\n{"verdict": "fail", "findings": ["a.py: still wrong"]}\n```'
@@ -1295,6 +1297,7 @@ def nothing_left_the_checkout(ws, scripted_gh, origin_before):
 @pytest.mark.parametrize("mode, jev_pick", [("shadow", "escalate"), ("live", "accept")])
 def test_a_full_pass_takes_each_fix_through_the_gate(ws, checkout, scripted_gh, monkeypatch, mode, jev_pick):  # AC13
     calls = jev_picks(ws, monkeypatch, jev_pick, 0.9)
+    scripted_gh.answer(RESOLVED)
     origin_before = git_out(ws / "origin.git", "rev-parse", BRANCH)
     start_commit = git_out(checkout, "rev-parse", "HEAD")
     state = fixing(ws, "Fix", "Skip", "Fix", mode=mode)
@@ -1307,6 +1310,7 @@ def test_a_full_pass_takes_each_fix_through_the_gate(ws, checkout, scripted_gh, 
     assert (saved.step, saved.task, saved.attempt) == ("build", 1, 1)
     assert (saved.task_start, saved.attempt_start) == (first_commit, first_commit)
     assert "first.txt" in calls[-1]["state"]["diff"]  # judge_task saw the task's commit
+    nothing_left_the_checkout(ws, scripted_gh, origin_before)  # only the last fix's accept pushes
 
     pr_comments.next_action(ws, saved)
     assert "Task 2/2: Fix a.py line 3" in last_prompt(ws, saved)
@@ -1314,10 +1318,8 @@ def test_a_full_pass_takes_each_fix_through_the_gate(ws, checkout, scripted_gh, 
     result, saved = one_attempt(ws, state.run_id, PASSED, "second.txt")
     second_commit = git_out(checkout, "rev-parse", "HEAD")
     assert (result["task"], result["decision"]) == (2, "accept")
-    assert saved.step == "push"
-    assert (saved.outcome, saved.pushed) == ("", False)
+    assert (saved.step, saved.outcome, saved.pushed) == ("done", "pushed", True)
     assert [thread.commit for thread in saved.threads] == [first_commit, "", second_commit]
-    assert not any(thread.resolved for thread in saved.threads)
 
     assert [(d.task, d.attempt, d.code, d.final, d.jev) for d in saved.log] == [
         (1, 1, "accept", "accept", jev_pick), (2, 1, "accept", "accept", jev_pick),
@@ -1326,7 +1328,6 @@ def test_a_full_pass_takes_each_fix_through_the_gate(ws, checkout, scripted_gh, 
     subjects = git_out(checkout, "log", "--format=%s", f"{start_commit}..HEAD").splitlines()
     assert subjects == ["Fix a.py line 3", "Fix a.py line 1"]  # the gate commits under the engine's titles
     assert not git_out(checkout, "status", "--porcelain")
-    nothing_left_the_checkout(ws, scripted_gh, origin_before)
 
 
 def test_the_agents_get_the_build_gates_prompts(ws, checkout):  # AC13
@@ -1357,10 +1358,10 @@ def test_the_agents_get_the_build_gates_prompts(ws, checkout):  # AC13
     ("live", "fix", 0.9, PASSED_WITH_NOTE, "accept", "fix", "build", 2),       # Jev decides, even against the code rule
     ("live", "escalate", 0.7, PASSED, "accept", "escalate", "done", 1),
     ("live", "accept", 0.9, FAILED, "fix", "fix", "build", 2),                 # failing work is never accepted
-    ("live", "fix", 0.3, PASSED_WITH_NOTE, "accept", "accept", "push", 1),     # Jev isn't sure: the code rule stands
-    ("live", "fix", 0.9, PASSED, "accept", "accept", "push", 1),               # nothing to fix: the code rule stands
-    ("shadow", "fix", 0.9, PASSED_WITH_NOTE, "accept", "accept", "push", 1),   # shadow: Jev is only logged
-    ("shadow", "escalate", 0.9, PASSED, "accept", "accept", "push", 1),
+    ("live", "fix", 0.3, PASSED_WITH_NOTE, "accept", "accept", "done", 1),     # Jev isn't sure: the code rule stands
+    ("live", "fix", 0.9, PASSED, "accept", "accept", "done", 1),               # nothing to fix: the code rule stands
+    ("shadow", "fix", 0.9, PASSED_WITH_NOTE, "accept", "accept", "done", 1),   # shadow: Jev is only logged
+    ("shadow", "escalate", 0.9, PASSED, "accept", "accept", "done", 1),
 ])
 def test_the_live_rule_decides_only_in_live_mode(
     ws, checkout, monkeypatch, mode, jev_pick, confidence, review, code, final, step, attempt,
@@ -1445,7 +1446,7 @@ def test_no_commit_on_attempt_2_after_a_commit_on_attempt_1_is_not_accepted(ws, 
     assert NO_CHANGE in last_prompt(ws, saved)
 
     result, saved = one_attempt(ws, state.run_id, PASSED, "third.txt")  # a commit at last: it can be accepted
-    assert (result["decision"], saved.step) == ("accept", "push")
+    assert (result["decision"], saved.step) == ("accept", "done")
     assert saved.threads[0].commit == git_out(checkout, "rev-parse", "HEAD") != first_commit
 
 
@@ -1556,7 +1557,265 @@ def test_a_bad_review_report_changes_nothing_and_can_be_sent_again(ws, checkout,
 
     assert (state_dir(ws, state) / "state.json").read_text() == saved_before
     pr_comments.reply(ws, load_pr_state(ws, state.run_id), PASSED)
+    assert load_pr_state(ws, state.run_id).step == "done"
+
+
+# ---------- pushing and resolving ----------
+
+class Stopped(Exception):
+    """The session ending partway through a step."""
+
+
+@pytest.fixture
+def pushes(monkeypatch):
+    """The argv of every git push. Each one still runs."""
+    seen = []
+    real_run = shell.run
+
+    def run(cmd, cwd):
+        if cmd[:2] == ["git", "push"]:
+            seen.append(cmd)
+        return real_run(cmd, cwd)
+
+    monkeypatch.setattr(shell, "run", run)
+    return seen
+
+
+def origin_moves_on(checkout):
+    """Someone else's commit lands on the PR's branch on origin, so the checkout's next push is rejected. Returns it."""
+    git_out(checkout, "switch", "-q", "-c", "theirs")
+    theirs = commit_file(checkout, "theirs.txt", "theirs", "Someone else's commit")
+    git_out(checkout, "push", "-q", "origin", f"theirs:{BRANCH}")
+    git_out(checkout, "switch", "-q", BRANCH)
+    return theirs
+
+
+def resolves(scripted_gh):
+    """The ids sent to gh to resolve, in order."""
+    return [value_of(call, "-f", "id") for call in scripted_gh.calls() if "resolveReviewThread" in " ".join(call)]
+
+
+def at_push(ws, *verdicts):
+    """A saved run that stopped at step push, before it pushed."""
+    state = fixing(ws, *verdicts)
+    state.step = "push"
+    save_state(ws, state)
+    return state
+
+
+def test_every_accepted_fix_pushes_once_then_resolves_only_the_fixed_threads(ws, checkout, scripted_gh, pushes):  # AC16
+    scripted_gh.answer(RESOLVED)
+    state = fixing(ws, "Fix", "Skip not needed", "Fix")
+
+    one_attempt(ws, state.run_id, PASSED, "ok.txt", "first.txt")
+    assert pushes == []
+    _, saved = one_attempt(ws, state.run_id, PASSED, "second.txt")
+
+    assert pushes == [["git", "push", "origin", BRANCH]]
+    origin = ws / "origin.git"
+    assert git_out(origin, "rev-parse", BRANCH) == git_out(checkout, "rev-parse", "HEAD")
+    assert git_out(origin, "log", "-2", "--format=%s", BRANCH).splitlines() == ["Fix a.py line 3", "Fix a.py line 1"]
+    assert resolves(scripted_gh) == ["T1", "T3"]
+    assert [thread.resolved for thread in saved.threads] == [True, False, True]
+    assert (saved.step, saved.outcome, saved.pushed, saved.push_error) == ("done", "pushed", True, "")
+    assert pr_comments.open_runs(ws) == {"runs": []}
+
+    assert pr_comments.next_action(ws, saved)["type"] == "done"
+    assert len(pushes) == 1
+    assert len(resolves(scripted_gh)) == 2
+
+
+def test_a_rejected_push_resolves_nothing_and_forces_nothing(ws, checkout, scripted_gh, pushes):  # AC17
+    scripted_gh.answer(RESOLVED)
+    state = fixing(ws, "Fix", "Skip not needed")
+    theirs = origin_moves_on(checkout)
+
+    _, saved = one_attempt(ws, state.run_id, PASSED, "ok.txt")
+
+    assert pushes == [["git", "push", "origin", BRANCH]]  # one try, and no force flag
+    assert git_out(ws / "origin.git", "rev-parse", BRANCH) == theirs
+    assert scripted_gh.calls() == []
+    assert (saved.step, saved.outcome, saved.pushed) == ("done", "push_failed", False)
+    assert "rejected" in saved.push_error
+    assert BRANCH in saved.push_error  # git's whole output, not only the end of it
+    assert not any(thread.resolved or thread.resolve_error for thread in saved.threads)
+
+    assert pr_comments.next_action(ws, saved)["type"] == "done"  # the run is over, so nothing is tried again
+    assert len(pushes) == 1
+
+
+def test_a_failed_resolve_leaves_the_others_resolved_and_stores_its_error(ws, checkout, scripted_gh, pushes):  # AC18
+    scripted_gh.answer({"match": "id=T2", "stderr": "gh: Resource not accessible\n", "code": 1}, RESOLVED)
+    state = fixing(ws, "Fix", "Fix", "Fix")
+
+    one_attempt(ws, state.run_id, PASSED, "ok.txt", "first.txt")
+    one_attempt(ws, state.run_id, PASSED, "second.txt")
+    _, saved = one_attempt(ws, state.run_id, PASSED, "third.txt")
+
+    assert resolves(scripted_gh) == ["T1", "T2", "T3"]
+    assert [thread.resolved for thread in saved.threads] == [True, False, True]
+    assert "Resource not accessible" in saved.threads[1].resolve_error
+    assert (saved.threads[0].resolve_error, saved.threads[2].resolve_error) == ("", "")
+    assert (saved.step, saved.outcome, saved.pushed) == ("done", "pushed", True)
+    assert len(pushes) == 1
+
+
+def test_a_run_stopped_before_the_push_continues_with_no_new_work(ws, checkout, scripted_gh, pushes, monkeypatch):  # AC5
+    scripted_gh.answer(RESOLVED)
+    state = fixing(ws, "Fix", "Skip not needed")
+
+    def stop(*_):
+        raise Stopped
+
+    with monkeypatch.context() as stopping, pytest.raises(Stopped):
+        stopping.setattr(pr_comments, "push_branch", stop)
+        one_attempt(ws, state.run_id, PASSED, "ok.txt")
+
+    saved = load_pr_state(ws, state.run_id)
+    fix_commit = git_out(checkout, "rev-parse", "HEAD")
+    assert (saved.step, saved.pushed, saved.threads[0].commit) == ("push", False, fix_commit)
+    assert pr_comments.open_runs(ws)["runs"][0]["step"] == "push"
+    prompts_before = prompt_files(ws, saved)
+
+    action = pr_comments.next_action(ws, saved)
+
+    saved = load_pr_state(ws, state.run_id)
+    assert action == {"type": "done", "summary": pr_comments.summary(saved)}
+    assert (saved.step, saved.outcome, saved.pushed) == ("done", "pushed", True)
+    assert len(saved.log) == 1  # the fix is not judged again
+    assert prompt_files(ws, saved) == prompts_before  # no agent is started again
+    assert git_out(checkout, "rev-parse", "HEAD") == fix_commit
+    assert git_out(ws / "origin.git", "rev-parse", BRANCH) == fix_commit
+    assert len(pushes) == 1
+    assert resolves(scripted_gh) == ["T1"]
+
+
+def test_the_push_is_saved_before_the_first_resolve(ws, checkout, scripted_gh, pushes, monkeypatch):  # AC5
+    scripted_gh.answer(RESOLVED)
+    state = fixing(ws, "Fix")
+
+    def stop(*_):
+        raise Stopped
+
+    with monkeypatch.context() as stopping, pytest.raises(Stopped):
+        stopping.setattr(pr_comments, "resolve_thread", stop)
+        one_attempt(ws, state.run_id, PASSED, "ok.txt")
+
+    saved = load_pr_state(ws, state.run_id)
+    assert (saved.step, saved.pushed, saved.threads[0].resolved) == ("push", True, False)
+
+    pr_comments.next_action(ws, saved)
+
+    assert len(pushes) == 1
+    assert resolves(scripted_gh) == ["T1"]
+
+
+def test_a_run_stopped_between_resolves_repeats_neither_the_push_nor_a_resolve(
+    ws, checkout, scripted_gh, pushes, monkeypatch,
+):  # AC5
+    scripted_gh.answer(RESOLVED)
+    state = fixing(ws, "Fix", "Fix", "Fix")
+    one_attempt(ws, state.run_id, PASSED, "ok.txt", "first.txt")
+    one_attempt(ws, state.run_id, PASSED, "second.txt")
+
+    def stop_at_t2(path, thread_id):
+        if thread_id == "T2":
+            raise Stopped
+        shell.resolve_thread(path, thread_id)
+
+    with monkeypatch.context() as stopping, pytest.raises(Stopped):
+        stopping.setattr(pr_comments, "resolve_thread", stop_at_t2)
+        one_attempt(ws, state.run_id, PASSED, "third.txt")
+
+    saved = load_pr_state(ws, state.run_id)  # the push and T1 were saved as they finished
+    assert (saved.step, saved.pushed) == ("push", True)
+    assert [thread.resolved for thread in saved.threads] == [True, False, False]
+    assert git_out(ws / "origin.git", "rev-parse", BRANCH) == git_out(checkout, "rev-parse", "HEAD")
+    assert resolves(scripted_gh) == ["T1"]
+
+    assert pr_comments.next_action(ws, saved)["type"] == "done"
+
+    saved = load_pr_state(ws, state.run_id)
+    assert (saved.step, saved.outcome) == ("done", "pushed")
+    assert all(thread.resolved for thread in saved.threads)
+    assert resolves(scripted_gh) == ["T1", "T2", "T3"]
+    assert len(pushes) == 1
+
+
+def test_a_stopped_run_tries_a_failed_resolve_again_and_drops_its_error(ws, checkout, scripted_gh, pushes):  # AC5, AC18
+    scripted_gh.answer(RESOLVED)
+    state = at_push(ws, "Fix", "Fix")
+    state.pushed = True
+    state.threads[0].resolved = True
+    state.threads[1].resolve_error = "gh: a hiccup"
+    save_state(ws, state)
+
+    pr_comments.next_action(ws, state)
+
+    saved = load_pr_state(ws, state.run_id)
+    assert pushes == []
+    assert resolves(scripted_gh) == ["T2"]
+    assert [(thread.resolved, thread.resolve_error) for thread in saved.threads] == [(True, ""), (True, "")]
+
+
+def test_a_rejected_push_on_resume_also_resolves_nothing(ws, checkout, scripted_gh, pushes):  # AC5, AC17
+    state = at_push(ws, "Fix")
+    theirs = origin_moves_on(checkout)
+    commit_file(checkout, "mine.txt", "mine", "My commit")
+
+    action = pr_comments.next_action(ws, state)
+
+    saved = load_pr_state(ws, state.run_id)
+    assert action["type"] == "done"
+    assert (saved.step, saved.outcome, saved.pushed) == ("done", "push_failed", False)
+    assert git_out(ws / "origin.git", "rev-parse", BRANCH) == theirs
+    assert scripted_gh.calls() == []
+    assert len(pushes) == 1
+
+
+def test_a_run_at_step_push_takes_no_reply(ws, checkout, pushes):
+    state = at_push(ws, "Fix")
+
+    with pytest.raises(EaseError, match="a run at step push takes no reply: run next to continue it"):
+        pr_comments.reply(ws, load_pr_state(ws, state.run_id), "hi")
+
     assert load_pr_state(ws, state.run_id).step == "push"
+    assert pushes == []
+
+
+@pytest.mark.parametrize("verdicts, reviews, origin_moved, first_answers, outcome, pushed, resolved", [
+    ([], [], False, [], "no open threads", 0, []),  # AC21
+    (["Skip", "Skip"], [], False, [], "all skipped", 0, []),  # AC21
+    (["Fix", "Skip"], [FAILED, FAILED, FAILED], False, [], "escalated", 0, []),
+    (["Fix", "Skip"], [PASSED], True, [], "push_failed", 1, []),
+    (["Fix", "Skip"], [PASSED], False, [], "pushed", 1, ["T1"]),
+    (["Fix", "Skip"], [PASSED], False, [{"match": "id=T1", "stderr": "boom", "code": 1}], "pushed", 1, ["T1"]),
+])
+def test_no_outcome_posts_anything_to_github(
+    ws, checkout, scripted_gh, pushes, verdicts, reviews, origin_moved, first_answers, outcome, pushed, resolved,
+):  # AC19
+    nodes = [thread(f"T{number}", [comment(f"C{number}")]) for number in range(1, len(verdicts) + 1)]
+    gh_says(scripted_gh, checkout, *first_answers, RESOLVED, threads_answer(*nodes))
+    state = started(ws)
+    if verdicts:
+        names = [(f"T{number}", "fix") for number in range(1, len(verdicts) + 1)]
+        pr_comments.reply(ws, state, report(*names))
+        answer(ws, load_pr_state(ws, state.run_id), dict(enumerate(verdicts, 1)))
+    if origin_moved:
+        origin_moves_on(checkout)
+    for number, review in enumerate(reviews):
+        one_attempt(ws, state.run_id, review, "ok.txt", f"try{number}.txt")
+
+    saved = load_pr_state(ws, state.run_id)
+    assert (saved.step, saved.outcome) == ("done", outcome)
+    assert pushes == [["git", "push", "origin", BRANCH]] * pushed
+    assert resolves(scripted_gh) == resolved
+    for call in scripted_gh.calls():
+        if call[:2] == ["api", "graphql"]:
+            query = value_of(call, "-f", "query")
+            assert "mutation" not in query or query == shell.RESOLVE_MUTATION
+        else:
+            assert call[:2] in (["pr", "view"], ["repo", "view"])
 
 
 # ---------- the command line ----------

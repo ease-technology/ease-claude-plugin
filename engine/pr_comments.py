@@ -1,5 +1,5 @@
 """The PR comments flow: one pass over a PR's open review threads. So far it starts a run, refuses unsafe states, judges
-the threads, asks the user about them and takes each fix through the build gate."""
+the threads, asks the user about them, takes each fix through the build gate, pushes and resolves the fixed threads."""
 import json
 import re
 from pathlib import Path
@@ -7,7 +7,9 @@ from pathlib import Path
 from engine import jev
 from engine.flow import gate_build, gate_review, parse_report, reviewer_prompt, spawn, worker_prompt
 from engine.models import Project, PrState, Task, Thread
-from engine.shell import capture, current_branch, git, head, is_dirty, pr_view, repo_name, review_threads, run
+from engine.shell import (
+    capture, current_branch, git, head, is_dirty, pr_view, push_branch, repo_name, resolve_thread, review_threads, run,
+)
 from engine.ticket import RECOMMENDED, question_rule, read_answers
 from engine.workspace import (
     EaseError, build_runs, load_config, load_project, new_pr_state, pr_runs, project_and_mode, save_state, state_dir,
@@ -205,7 +207,8 @@ def next_action(ws, state: PrState) -> dict:
         return spawn(ws, state, "worker", worker_prompt(state, project))
     if state.step == "review":
         return spawn(ws, state, "reviewer", reviewer_prompt(state, project))
-    raise EaseError(f"step {state.step} of a PR comments run is not built yet")
+    push_and_resolve(ws, state, project)  # only step push is left, and only a stopped run gets here
+    return {"type": "done", "summary": summary(state)}
 
 
 def ask_threads(state: PrState) -> dict:
@@ -287,7 +290,7 @@ def reply(ws, state: PrState, text: str) -> dict:
     elif state.step == "review":
         result = reply_review(ws, state, load_project(ws, state.project), text)
     else:
-        raise EaseError(f"step {state.step} of a PR comments run is not built yet")
+        raise EaseError("a run at step push takes no reply: run next to continue it")
     save_state(ws, state)
     return result
 
@@ -436,6 +439,8 @@ def reply_review(ws, state: PrState, project: Project, text: str) -> dict:
             state.step = "build"
         else:
             state.step = "push"
+            save_state(ws, state)
+            push_and_resolve(ws, state, project)
     elif final == "fix":
         state.attempt += 1
         state.attempt_start = now  # attempt 1 may commit and attempt 2 not
@@ -444,6 +449,35 @@ def reply_review(ws, state: PrState, project: Project, text: str) -> dict:
         state.step, state.outcome = "done", "escalated"
 
     return {"ok": True, "task": reviewed, **result}
+
+
+# ---------- push ----------
+
+def push_and_resolve(ws, state: PrState, project: Project) -> None:
+    """Push once, then resolve each fixed thread, saving along the way so a stopped run continues where it was.
+    A rejected push ends the run with nothing resolved. A resolve that failed is tried again only by a stopped run."""
+    path = project.repos[state.repo].path
+    if not state.pushed:
+        pushed, output = push_branch(path, state.branch)
+        if not pushed:
+            state.push_error, state.outcome, state.step = output, "push_failed", "done"
+            save_state(ws, state)
+            return
+        state.pushed = True
+        save_state(ws, state)
+
+    for thread in fixes(state):
+        if thread.resolved:
+            continue
+        try:
+            resolve_thread(path, thread.id)
+            thread.resolved, thread.resolve_error = True, ""
+        except EaseError as error:
+            thread.resolve_error = str(error)
+        save_state(ws, state)
+
+    state.step, state.outcome = "done", "pushed"
+    save_state(ws, state)
 
 
 # ---------- text for the user ----------
