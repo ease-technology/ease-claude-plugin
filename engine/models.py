@@ -121,6 +121,7 @@ class Thread:            # one open review thread on a PR, and what happened to 
     decided_by: str = ""               # you | jev | earlier
     earlier_verdict: str = ""          # the verdict an earlier run gave this thread
     earlier_reason: str = ""
+    new_comments: list[str] = field(default_factory=list)  # ids of the comments that earlier run's skip didn't see
     draft: str = ""                    # the reply you can paste on the thread
     commit: str = ""                   # the last commit of its fix
     resolved: bool = False

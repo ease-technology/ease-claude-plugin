@@ -158,6 +158,23 @@ def test_judge_threads_sends_only_the_named_fields(monkeypatch):  # AC7
     assert "SECRET" not in sent and "proposal" not in sent and "recommend" not in sent.lower()
 
 
+def test_judge_threads_adds_what_an_earlier_run_decided_and_no_proposal(monkeypatch):  # AC24
+    calls = []
+    monkeypatch.setattr(jev, "post", fake_post({}, calls))
+    again = a_thread("A")
+    again.earlier_verdict, again.earlier_reason = "skip", "It reads fine."
+
+    judge_threads([again, a_thread("B")])
+
+    first, second = calls[0]["state"]["threads"].values()
+    assert (first["earlier_verdict"], first["earlier_reason"]) == ("skip", "It reads fine.")
+    assert "earlier_verdict" not in second and "earlier_reason" not in second
+    assert "`earlier_verdict`" in calls[0]["questions"]["t1"]["instructions"]
+    assert "`earlier_verdict`" not in calls[0]["questions"]["t2"]["instructions"]
+    sent = json.dumps(calls[0])
+    assert "SECRET" not in sent and "proposal" not in sent and "recommend" not in sent.lower()
+
+
 def test_judge_threads_counts_any_other_choice_as_no_pick(monkeypatch):
     answers = {
         "t1": {"choice": "maybe", "confidence": 0.9},
