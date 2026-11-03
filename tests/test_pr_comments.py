@@ -805,6 +805,406 @@ def test_a_failed_jev_call_continues_with_no_pick_and_says_so(ws, monkeypatch, c
     assert (saved.threads[2].proposal, saved.threads[2].jev, saved.threads[2].jev_confidence) == ("skip", None, None)
 
 
+# ---------- asking you, and settling in live mode ----------
+
+def judged(name="T1", proposal=None, jev_pick=None, confidence=None, body="Hm.", line=3):
+    """A thread the agent and Jev have seen, with no verdict."""
+    return Thread(
+        name, "a.py", line, False, [{"id": f"C{name}", "author": "sam", "body": body}],
+        proposal=proposal, skip_reason="No change needed.", fix_note="Change it.",
+        jev=jev_pick, jev_confidence=confidence,
+    )
+
+
+def at_answer(ws, *threads):
+    """A saved run at step answer."""
+    state = new_pr_state("demo", "PR 7", "Threads.", BRANCH, "app", 7, URL, "abc", "juan", list(threads))
+    state.step = "answer"
+    save_state(ws, state)
+    return state
+
+
+def answer(ws, state, answers):
+    """Send your answers, keyed by thread number or by question text, and return the reply and the saved run."""
+    keyed = {
+        pr_comments.question_text(key, state.threads[key - 1]) if isinstance(key, int) else key: words
+        for key, words in answers.items()
+    }
+    result = pr_comments.reply(ws, load_pr_state(ws, state.run_id), json.dumps({"answers": keyed}))
+    return result, load_pr_state(ws, state.run_id)
+
+
+def judged_by_jev(ws, monkeypatch, mode, *threads):
+    """Send a report through reply_judge. Each thread is (proposal, Jev's choice, confidence). Return the saved run."""
+    give_a_key(ws)
+    jev_answers(monkeypatch, {
+        f"t{number}": {"choice": choice, "confidence": confidence}
+        for number, (_, choice, confidence) in enumerate(threads, 1)
+    })
+    names = [f"T{number}" for number in range(1, len(threads) + 1)]
+    state = new_pr_state(
+        "demo", "PR 7", "Threads.", BRANCH, "app", 7, URL, "abc", "juan",
+        [Thread(name, "a.py", 3, False, [{"id": f"C{name}", "author": "sam", "body": "Hm."}]) for name in names],
+    )
+    state.jev_mode = mode
+    pr_comments.reply(ws, state, report(*[(name, t[0]) for name, t in zip(names, threads)]))
+    return load_pr_state(ws, state.run_id)
+
+
+def labels(question):
+    return [option["label"] for option in question["options"]]
+
+
+def descriptions(question):
+    return {option["label"]: option["description"] for option in question["options"]}
+
+
+def test_shadow_mode_settles_nothing_and_asks_every_thread(ws, monkeypatch):  # AC9
+    state = judged_by_jev(ws, monkeypatch, "shadow", ("fix", "fix", 0.99), ("skip", "skip", 0.99), ("fix", "skip", 0.9))
+
+    assert state.step == "answer"
+    assert [(t.verdict, t.decided_by) for t in state.threads] == [("", "")] * 3
+    questions = pr_comments.next_action(ws, state)["questions"]
+    assert len(questions) == 3
+    assert [sorted(label.split()[0] for label in labels(q)) for q in questions] == [["Fix", "Skip"]] * 3
+
+
+@pytest.mark.parametrize("confidence, settled", [(0.49, False), (0.5, True), (0.9, True)])
+def test_live_mode_settles_at_a_confidence_of_one_half_or_more(ws, monkeypatch, confidence, settled):  # AC10
+    state = judged_by_jev(ws, monkeypatch, "live", ("skip", "skip", confidence), ("fix", "skip", 0.9))
+
+    thread = state.threads[0]
+    assert (thread.verdict, thread.decided_by) == (("skip", "jev") if settled else ("", ""))
+    assert state.threads[1].verdict == ""  # Jev differs, so it comes to you
+    asked = pr_comments.next_action(ws, state)["questions"]
+    assert len(asked) == (1 if settled else 2)
+
+
+@pytest.mark.parametrize("proposal, choice, confidence", [
+    ("fix", "skip", 0.9),
+    ("fix", "fix", None),
+    ("fix", None, None),
+    (None, "fix", 0.9),
+    (None, None, None),
+])
+def test_live_mode_asks_about_every_other_thread(ws, monkeypatch, proposal, choice, confidence):  # AC10
+    state = judged_by_jev(ws, monkeypatch, "live", (proposal, choice, confidence))
+
+    assert state.step == "answer"
+    assert (state.threads[0].verdict, state.threads[0].decided_by) == ("", "")
+    assert len(pr_comments.next_action(ws, state)["questions"]) == 1
+
+
+def test_no_proposal_never_settles_even_with_a_confidence_and_no_pick(ws, monkeypatch):  # AC10
+    # A confidence with no pick would pass the rule, since None equals None
+    monkeypatch.setattr(jev, "judge_threads", lambda key, state, threads: [(None, 0.9)])
+    state = new_pr_state("demo", "PR 7", "Threads.", BRANCH, "app", 7, URL, "abc", "juan", [judged()])
+    state.jev_mode = "live"
+
+    pr_comments.reply(ws, state, report(("T1", None)))
+
+    saved = load_pr_state(ws, state.run_id)
+    assert (saved.step, saved.threads[0].verdict) == ("answer", "")
+
+
+def test_a_settled_thread_takes_the_agents_text_and_holds_how_it_was_decided(ws, monkeypatch):  # AC10, AC12
+    state = judged_by_jev(ws, monkeypatch, "live", ("fix", "fix", 0.7), ("skip", "skip", 0.8), (None, "fix", 0.6))
+
+    fixed, skipped, open_thread = state.threads
+    assert (fixed.proposal, fixed.jev, fixed.jev_confidence) == ("fix", "fix", 0.7)
+    assert (fixed.verdict, fixed.decided_by, fixed.instruction, fixed.reason) == ("fix", "jev", "Change it.", "")
+    assert (skipped.proposal, skipped.jev, skipped.jev_confidence) == ("skip", "skip", 0.8)
+    assert (skipped.verdict, skipped.decided_by, skipped.reason, skipped.instruction) == (
+        "skip", "jev", "No change needed.", "",
+    )
+    assert (open_thread.proposal, open_thread.jev, open_thread.verdict) == (None, "fix", "")
+
+
+def test_live_mode_goes_straight_to_build_when_jev_settles_every_thread(ws, monkeypatch):  # AC10
+    state = judged_by_jev(ws, monkeypatch, "live", ("fix", "fix", 0.7), ("skip", "skip", 0.7))
+
+    assert state.step == "build"
+    assert [task.title for task in state.tasks] == ["Fix a.py line 3"]
+
+
+def test_live_mode_ends_the_run_when_jev_settles_every_thread_as_a_skip(ws, monkeypatch):  # AC10, AC21
+    state = judged_by_jev(ws, monkeypatch, "live", ("skip", "skip", 0.7))
+
+    assert (state.step, state.outcome, state.tasks) == ("done", "all skipped", [])
+
+
+@pytest.mark.parametrize("proposal, jev_pick, confidence, expected", [
+    ("fix", None, None, [("Fix (Recommended)", "Change it."), ("Skip", "No change needed.")]),
+    ("skip", None, None, [("Skip (Recommended)", "No change needed."), ("Fix", "Change it.")]),
+    (None, None, None, [("Fix", "Change it."), ("Skip", "No change needed.")]),
+    ("fix", "fix", 0.9, [("Fix (Recommended)", "Change it."), ("Skip", "No change needed.")]),  # no difference to mark
+    ("skip", "skip", 0.9, [("Skip (Recommended)", "No change needed."), ("Fix", "Change it.")]),
+    ("fix", "skip", 0.75, [
+        ("Fix (Recommended)", "Change it."), ("Skip", "Jev would pick this (0.75). No change needed."),
+    ]),
+    ("skip", "fix", 0.4, [  # Jev isn't sure, and it is still marked
+        ("Skip (Recommended)", "No change needed."), ("Fix", "Jev would pick this (0.40). Change it."),
+    ]),
+    (None, "skip", 0.6, [("Fix", "Change it."), ("Skip", "Jev would pick this (0.60). No change needed.")]),
+    (None, "fix", 0.6, [("Fix", "Jev would pick this (0.60). Change it."), ("Skip", "No change needed.")]),
+    ("fix", "skip", None, [("Fix (Recommended)", "Change it."), ("Skip", "Jev would pick this. No change needed.")]),
+])
+def test_a_questions_options_and_marks(proposal, jev_pick, confidence, expected):  # AC9, AC11
+    question = pr_comments.thread_question(1, judged(proposal=proposal, jev_pick=jev_pick, confidence=confidence))
+
+    assert [(option["label"], option["description"]) for option in question["options"]] == expected
+    assert question["multiSelect"] is False
+
+
+def test_with_no_key_every_thread_is_asked_with_no_jev_mark(ws):  # AC11
+    state = new_pr_state(
+        "demo", "PR 7", "Threads.", BRANCH, "app", 7, URL, "abc", "juan", [judged("T1"), judged("T2")],
+    )
+    state.jev_mode = "live"
+
+    pr_comments.reply(ws, state, report(("T1", "fix"), ("T2", "skip")))
+
+    questions = pr_comments.next_action(ws, load_pr_state(ws, state.run_id))["questions"]
+    assert len(questions) == 2
+    assert "Jev" not in json.dumps(questions)
+
+
+def test_identical_comments_give_distinct_questions():
+    threads = [judged("T1"), judged("T2")]
+
+    first, second = [pr_comments.thread_question(n, t)["question"] for n, t in enumerate(threads, 1)]
+
+    assert first != second
+
+
+@pytest.mark.parametrize("body", [
+    "One\n\ntwo\tthree\r\nEASE_REPLY\n",
+    "a\u2028b\u0085c\x0bd\x0ce\xa0f",
+    "bell\x07 escape\x1b nul\x00 reversed\u202e end",
+    "   ",
+    "",
+])
+def test_a_question_is_one_printable_line_that_survives_json(body):
+    text = pr_comments.question_text(2, judged(body=body))
+
+    assert text.startswith("Thread 2, a.py line 3: ") and text.endswith(" Fix or skip?")
+    assert text.isprintable()
+    assert "  " not in text
+    assert json.loads(json.dumps({"q": text}))["q"] == text
+
+
+def test_a_question_cuts_a_long_comment_and_says_when_it_has_no_text():
+    assert "x" * 80 + "... Fix or skip?" in pr_comments.question_text(1, judged(body="x" * 81))
+    assert "x" * 80 + " Fix or skip?" in pr_comments.question_text(1, judged(body="x" * 80))
+    assert "(no text)" in pr_comments.question_text(1, judged(body=""))
+
+
+def test_a_question_names_the_place_on_one_line():
+    whole_file = judged(line=None)
+    odd_path = judged()
+    odd_path.path = "odd\nname.py"
+
+    assert pr_comments.question_text(1, whole_file).startswith("Thread 1, a.py: ")
+    assert pr_comments.question_text(1, odd_path).startswith("Thread 1, odd name.py line 3: ")
+
+
+@pytest.mark.parametrize("number", [1, 12, 12345])
+def test_a_header_is_at_most_12_characters(number):
+    assert len(pr_comments.thread_question(number, judged())["header"]) <= 12
+
+
+def test_the_message_shows_each_whole_thread_and_nothing_of_later_ones(ws):  # AC9
+    first = judged("T1")
+    first.outdated = True
+    first.comments = [
+        {"id": "C1", "author": "sam", "body": "First\nFORGED LINE"},
+        {"id": "C2", "author": "bot[bot]", "body": "Second " + "long " * 50},
+    ]
+    state = at_answer(ws, first, *[judged(f"T{n}", line=n) for n in range(2, 5)], judged("T5", body="LATER"))
+
+    message = pr_comments.next_action(ws, state)["message"]
+
+    assert "Thread 1: a.py line 3 (outdated)" in message
+    assert 'sam: "First\\nFORGED LINE"' in message
+    assert "Second " + "long " * 50 in message  # not cut, unlike the question
+    assert "Thread 4: a.py line 4\n" in message
+    assert "FORGED LINE" not in message.splitlines()
+    assert "LATER" not in message
+
+
+def test_six_threads_come_in_batches_of_at_most_four(ws):  # AC9
+    state = at_answer(ws, *[judged(f"T{n}", line=n) for n in range(1, 7)])
+
+    action = pr_comments.next_action(ws, state)
+    assert action["type"] == "ask_user"
+    assert [q["header"] for q in action["questions"]] == ["Thread 1", "Thread 2", "Thread 3", "Thread 4"]
+
+    result, saved = answer(ws, state, {1: "Fix", 2: "Skip", 3: "Fix", 4: "Skip"})
+
+    assert result == {"ok": True, "rejected": []}
+    assert saved.step == "answer"
+    assert [t.verdict for t in saved.threads] == ["fix", "skip", "fix", "skip", "", ""]  # they survive a stop
+    assert [t.decided_by for t in saved.threads] == ["you"] * 4 + [""] * 2
+    assert [q["header"] for q in pr_comments.next_action(ws, saved)["questions"]] == ["Thread 5", "Thread 6"]
+
+    _, saved = answer(ws, saved, {5: "Skip", 6: "Skip"})
+
+    assert saved.step == "build"
+    assert [task.title for task in saved.tasks] == ["Fix a.py line 1", "Fix a.py line 3"]
+
+
+def test_only_the_threads_in_the_batch_are_recorded(ws):
+    state = at_answer(ws, *[judged(f"T{n}", line=n) for n in range(1, 6)])
+
+    result, saved = answer(ws, state, {1: "Fix", 2: "Fix", 3: "Fix", 4: "Fix", 5: "Skip", "Who are you?": "Fix"})
+
+    assert result["rejected"] == []
+    assert saved.threads[4].verdict == ""
+
+
+def test_a_thread_with_its_verdict_is_not_asked_again_and_keeps_its_number(ws):
+    state = at_answer(ws, judged("T1", line=1), judged("T2", line=2))
+    state.threads[0].verdict, state.threads[0].decided_by = "skip", "jev"
+    save_state(ws, state)
+
+    question = pr_comments.next_action(ws, state)["questions"][0]
+
+    assert question["header"] == "Thread 2"
+    assert question["question"].startswith("Thread 2, a.py line 2: ")
+
+
+@pytest.mark.parametrize("words, verdict, instruction, reason", [
+    ("Fix", "fix", "Change it.", ""),
+    ("Skip", "skip", "", "No change needed."),
+    ("Fix (Recommended)", "fix", "Change it.", ""),
+    ("Skip (Recommended)", "skip", "", "No change needed."),
+    ("fix", "fix", "Change it.", ""),
+    ("SKIP", "skip", "", "No change needed."),
+    ("  fix  ", "fix", "Change it.", ""),
+    ("fix.", "fix", "Change it.", ""),
+    ("fix the off by one", "fix", "the off by one", ""),
+    ("FIX: the off by one", "fix", "the off by one", ""),
+    ("fix\nthe off\nby one", "fix", "the off\nby one", ""),
+    ("Skip, it reads fine", "skip", "", "it reads fine"),
+    ("skip it reads fine", "skip", "", "it reads fine"),
+])
+def test_the_answers_it_accepts(ws, words, verdict, instruction, reason):
+    state = at_answer(ws, judged("T1"))
+
+    result, saved = answer(ws, state, {1: words})
+
+    decided = saved.threads[0]
+    assert result["rejected"] == []
+    assert (decided.verdict, decided.instruction, decided.reason) == (verdict, instruction, reason)
+    assert decided.decided_by == "you"
+
+
+@pytest.mark.parametrize("words", [
+    "fixture", "fixes", "skipping", "skipped it", "fix-it", "fix.py is wrong", "prefix", "don't fix", "maybe", "", "  ",
+    None, ["Fix"],
+])
+def test_a_rejected_answer_is_asked_again_and_the_others_are_saved(ws, words):
+    state = at_answer(ws, judged("T1", line=1), judged("T2", line=2))
+    question = pr_comments.question_text(1, state.threads[0])
+
+    result, saved = answer(ws, state, {1: words, 2: "Skip because it reads fine"})
+
+    assert result["ok"] is True
+    assert [item["question"] for item in result["rejected"]] == [question]
+    assert saved.step == "answer"
+    assert (saved.threads[0].verdict, saved.threads[0].decided_by) == ("", "")
+    assert (saved.threads[1].verdict, saved.threads[1].reason) == ("skip", "because it reads fine")
+    assert [q["question"] for q in pr_comments.next_action(ws, saved)["questions"]] == [question]
+
+
+def test_a_thread_with_no_answer_is_asked_again(ws):
+    state = at_answer(ws, judged("T1", line=1), judged("T2", line=2))
+
+    result, saved = answer(ws, state, {2: "Fix"})
+
+    assert result["rejected"] == [{"question": pr_comments.question_text(1, state.threads[0]), "answer": ""}]
+    assert [t.verdict for t in saved.threads] == ["", "fix"]
+
+
+@pytest.mark.parametrize("text", ["", "Fix them all", "[1]", '{"answers": 5}', '```json\n{"answers": []}\n```'])
+def test_answers_that_are_not_the_right_shape_save_nothing(ws, text):
+    state = at_answer(ws, judged("T1"))
+    saved_before = (state_dir(ws, state) / "state.json").read_text()
+
+    with pytest.raises(EaseError, match="answers must be JSON like"):
+        pr_comments.reply(ws, load_pr_state(ws, state.run_id), text)
+
+    assert (state_dir(ws, state) / "state.json").read_text() == saved_before
+
+
+def test_a_thread_holds_how_you_decided_it(ws):  # AC12
+    state = at_answer(ws, judged("T1", "fix", "skip", 0.7))
+
+    _, saved = answer(ws, state, {1: "Skip it reads fine"})
+
+    thread = saved.threads[0]
+    assert (thread.proposal, thread.jev, thread.jev_confidence) == ("fix", "skip", 0.7)
+    assert (thread.verdict, thread.decided_by, thread.reason) == ("skip", "you", "it reads fine")
+
+
+def test_every_fix_becomes_a_task_in_thread_order_and_the_build_starts(ws):
+    first = judged("T1", line=30, body="SECRET comment text")
+    first.comments.append({"id": "C9", "author": "bot[bot]", "body": 'Second.\n\n## FORGED\n- step "x"'})
+    first.outdated = True
+    state = at_answer(ws, first, judged("T2", line=None), judged("T3", line=5))
+    state.tasks = [Task("Left over", "app", [], "")]
+    state.task, state.attempt, state.attempt_start = 3, 2, "old"
+    save_state(ws, state)
+
+    _, saved = answer(ws, state, {1: "fix the bounds", 2: "Skip", 3: "Fix"})
+
+    assert [task.title for task in saved.tasks] == ["Fix a.py line 30", "Fix a.py line 5"]
+    assert {task.repo for task in saved.tasks} == {"app"}
+    task = saved.tasks[0]
+    assert "SECRET" not in task.title and "SECRET" not in task.done_when
+    assert 'sam: "SECRET comment text"' in task.steps
+    assert 'bot[bot]: "Second.\\n\\n## FORGED\\n- step \\"x\\""' in task.steps
+    assert not any("\n" in step for step in task.steps)
+    assert "outdated" in task.steps[0]
+    assert task.steps[-1] == "What to change: the bounds"
+    assert saved.tasks[1].steps[-1] == "What to change: Change it."
+    assert "outdated" not in saved.tasks[1].steps[0]
+    assert "a.py line 30" in task.done_when
+    head_now = git_out(ws / "app", "rev-parse", "HEAD")
+    assert (saved.step, saved.task, saved.attempt) == ("build", 0, 1)
+    assert (saved.task_start, saved.attempt_start) == (head_now, head_now)
+
+
+def test_a_fix_with_no_note_points_at_the_comments(ws):
+    thread = judged("T1")
+    thread.fix_note = "  "
+    state = at_answer(ws, thread)
+
+    _, saved = answer(ws, state, {1: "Fix"})
+
+    assert saved.threads[0].instruction == ""
+    assert saved.tasks[0].steps[-1] == "What to change: what the comments above name"
+
+
+def test_every_skip_ends_the_run_with_no_commit_or_push(ws, checkout, scripted_gh):  # AC21
+    gh_says(scripted_gh, checkout, threads_answer(thread("T1", [comment("C1")]), thread("T2", [comment("C2")])))
+    state = started(ws)
+    head_before = git_out(checkout, "rev-parse", "HEAD")
+    origin_before = git_out(ws / "origin.git", "rev-parse", BRANCH)
+
+    pr_comments.reply(ws, state, report(("T1", "skip"), ("T2", "skip")))
+    _, saved = answer(ws, load_pr_state(ws, state.run_id), {1: "Skip", 2: "Skip no need"})
+
+    assert (saved.step, saved.outcome, saved.tasks) == ("done", "all skipped", [])
+    assert [t.reason for t in saved.threads] == ["No change needed.", "no need"]
+    assert pr_comments.next_action(ws, saved)["type"] == "done"
+    assert pr_comments.open_runs(ws) == {"runs": []}
+    assert git_out(checkout, "rev-parse", "HEAD") == head_before
+    assert git_out(ws / "origin.git", "rev-parse", BRANCH) == origin_before
+    assert not git_out(checkout, "status", "--porcelain")
+    assert not any("mutation" in arg for call in scripted_gh.calls() for arg in call)
+
+
 # ---------- the command line ----------
 
 def cli(capsys, monkeypatch, args, stdin=""):
@@ -879,6 +1279,21 @@ def test_the_cli_prints_a_refusal_as_json(ws, checkout, scripted_gh, monkeypatch
 
     assert code == 1
     assert "PR #7 is merged" in result["error"]
+
+
+def test_the_cli_asks_and_keeps_stdout_one_json_object_for_a_rejected_answer(ws, monkeypatch, capsys):
+    monkeypatch.chdir(ws)
+    state = at_answer(ws, judged("T1", "fix"))
+
+    code, action = cli(capsys, monkeypatch, ["pr-comments", "next", state.run_id])
+    assert (code, action["type"]) == (0, "ask_user")
+    question = action["questions"][0]["question"]
+
+    answers = json.dumps({"answers": {question: "fixture"}})
+    assert cli(capsys, monkeypatch, ["pr-comments", "reply", state.run_id], answers) == (0, {
+        "ok": True, "rejected": [{"question": question, "answer": "fixture"}],
+    })
+    assert load_pr_state(ws, state.run_id).threads[0].verdict == ""
 
 
 @pytest.mark.parametrize("args", [
