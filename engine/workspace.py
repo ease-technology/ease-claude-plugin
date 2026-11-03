@@ -1,4 +1,4 @@
-"""Find the workspace and read or write its files (config, projects, build and ticket runs)."""
+"""Find the workspace and read or write its files (config, projects, build, ticket and PR comments runs)."""
 import json
 import os
 import re
@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 
 from engine.models import (
-    Project, Repo, State, TicketState, state_from_json, state_to_json, ticket_state_from_json,
+    PrState, Project, Repo, State, Thread, TicketState, pr_state_from_json, state_from_json, state_to_json,
+    ticket_state_from_json,
 )
 
 CONTEXT_DIR = ".ease-context"
@@ -92,9 +93,34 @@ def new_ticket_state(project: str, idea: str) -> TicketState:
     )
 
 
+def new_pr_state(
+    project: str, title: str, body: str, branch: str,
+    repo: str, pr_number: int, pr_url: str, pr_head: str, viewer: str, threads: list[Thread],
+) -> PrState:
+    """A fresh PR comments run. The title and body describe the PR, and the branch is the PR's."""
+    return PrState(
+        run_id=time.strftime("%Y%m%d-%H%M%S") + "-" + slugify(title),
+        project=project,
+        ticket_title=title,
+        ticket_body=body,
+        branch=branch,
+        repo=repo,
+        pr_number=pr_number,
+        pr_url=pr_url,
+        pr_head=pr_head,
+        viewer=viewer,
+        threads=threads,
+    )
+
+
 def state_dir(ws: Path, state: State | TicketState) -> Path:
-    """A run's folder: runs/<run_id> for build runs, ticket-runs/<run_id> for ticket runs."""
-    kind = "ticket-runs" if isinstance(state, TicketState) else "runs"
+    """A run's folder under runs/, ticket-runs/ or pr-runs/, named by its run_id."""
+    if isinstance(state, PrState):  # a PrState is also a State, so this comes first
+        kind = "pr-runs"
+    elif isinstance(state, TicketState):
+        kind = "ticket-runs"
+    else:
+        kind = "runs"
     return ws / CONTEXT_DIR / kind / state.run_id
 
 
@@ -130,6 +156,11 @@ def load_ticket_state(ws: Path, run_id: str) -> TicketState:
     return ticket_state_from_json(state_text(ws / CONTEXT_DIR / "ticket-runs", run_id))
 
 
+def load_pr_state(ws: Path, run_id: str) -> PrState:
+    """Load a PR comments run by its id."""
+    return pr_state_from_json(state_text(ws / CONTEXT_DIR / "pr-runs", run_id))
+
+
 def build_runs(ws: Path) -> list[State]:
     """Every build run, oldest first."""
     return [state_from_json(text) for text in state_texts(ws / CONTEXT_DIR / "runs")]
@@ -138,3 +169,8 @@ def build_runs(ws: Path) -> list[State]:
 def ticket_runs(ws: Path) -> list[TicketState]:
     """Every ticket run, oldest first."""
     return [ticket_state_from_json(text) for text in state_texts(ws / CONTEXT_DIR / "ticket-runs")]
+
+
+def pr_runs(ws: Path) -> list[PrState]:
+    """Every PR comments run, oldest first."""
+    return [pr_state_from_json(text) for text in state_texts(ws / CONTEXT_DIR / "pr-runs")]

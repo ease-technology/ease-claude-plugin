@@ -1,4 +1,4 @@
-"""The data model: what a project, a run, a task, a decision and a ticket run look like."""
+"""The data model: what a project, a run, a task, a decision, a ticket run and a PR comments run look like."""
 import json
 from dataclasses import asdict, dataclass, field
 
@@ -102,18 +102,68 @@ class TicketState:
     outcome: str = ""                  # written | cancelled
 
 
+@dataclass
+class Thread:            # one open review thread on a PR, and what happened to it
+    id: str
+    path: str
+    line: int | None
+    outdated: bool
+    comments: list[dict]               # each has id, author and body
+    code: str = ""                     # the code at the thread's line
+    proposal: str | None = None        # the agent's view: fix | skip, None when it has no view
+    skip_reason: str = ""
+    fix_note: str = ""
+    jev: str | None = None             # Jev's pick: fix | skip
+    jev_confidence: float | None = None
+    verdict: str = ""                  # fix | skip, empty until decided
+    reason: str = ""                   # why it was skipped
+    instruction: str = ""              # what to fix
+    decided_by: str = ""               # you | jev | earlier
+    earlier_verdict: str = ""          # the verdict an earlier run gave this thread
+    earlier_reason: str = ""
+    draft: str = ""                    # the reply you can paste on the thread
+    commit: str = ""                   # the last commit of its fix
+    resolved: bool = False
+    resolve_error: str = ""
+
+
+@dataclass
+class PrState(State):
+    step: str = "judge"                # judge | answer | build | review | push | done
+    repo: str = ""                     # one of the project's repo names
+    pr_number: int = 0
+    pr_url: str = ""
+    pr_head: str = ""                  # the PR's head commit when the run started
+    viewer: str = ""                   # the GitHub login running this
+    threads: list[Thread] = field(default_factory=list)
+    attempt_start: str = ""            # commit where the current attempt started
+    pushed: bool = False
+    push_error: str = ""
+
+
 def state_to_json(state: State | TicketState) -> str:
     """The state as JSON text, for state.json."""
     return json.dumps(asdict(state), indent=2)
 
 
-def state_from_json(text: str) -> State:
-    """Read state.json text back into a State (with its Tasks and Decisions)."""
-    data = json.loads(text)
+def build_fields(data: dict) -> dict:
+    """Turn the Tasks, Decisions and Verdicts of a build or PR comments run back into objects."""
     data["tasks"] = [Task(**t) for t in data["tasks"]]
     data["log"] = [Decision(**d) for d in data["log"]]
     data["plan_log"] = [Verdict(**v) for v in data.get("plan_log", [])]  # older runs have none
-    return State(**data)
+    return data
+
+
+def state_from_json(text: str) -> State:
+    """Read state.json text back into a State (with its Tasks and Decisions)."""
+    return State(**build_fields(json.loads(text)))
+
+
+def pr_state_from_json(text: str) -> PrState:
+    """Read a PR comments run's state.json back into a PrState (with its Tasks, Decisions and Threads)."""
+    data = build_fields(json.loads(text))
+    data["threads"] = [Thread(**t) for t in data["threads"]]
+    return PrState(**data)
 
 
 def ticket_state_from_json(text: str) -> TicketState:
