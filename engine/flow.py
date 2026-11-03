@@ -9,7 +9,7 @@ from engine.shell import (
     is_dirty, open_pr, run_checks, switch_to_branch,
 )
 from engine.workspace import (
-    EaseError, build_runs, load_config, load_project, new_state, project_and_mode, save_state, state_dir,
+    EaseError, build_runs, load_config, load_project, new_state, pr_runs, project_and_mode, save_state, state_dir,
 )
 
 PLAN_SHAPE = """```json
@@ -132,7 +132,8 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
         repos = list(dict.fromkeys(task.repo for task in state.tasks))  # no duplicates, in order
         runs = build_runs(ws)
         old_branches = {run.branch for run in runs}
-        busy = {run.branch: run for run in runs if run.step != "done" and run.run_id != state.run_id}
+        others = [run for run in runs if run.run_id != state.run_id] + pr_runs(ws)
+        busy = {run.branch: run for run in others if run.step != "done"}
         for repo in repos:
             path = project.repos[repo].path
             if not (Path(path) / ".git").exists():
@@ -140,7 +141,7 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
             if is_dirty(path):
                 raise EaseError(f"{path} has uncommitted changes. Commit or stash them, then approve again.")
             branch = current_branch(path)
-            if branch in busy:  # another run is building here
+            if branch in busy:  # another run is working here
                 other = busy[branch]
                 raise EaseError(
                     f"{path} is busy with run {other.run_id} ({other.ticket_title}). Approve again once that "

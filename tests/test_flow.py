@@ -7,7 +7,7 @@ import pytest
 from conftest import git_repo, write_project
 from engine import flow, jev
 from engine.models import Verdict
-from engine.workspace import CONTEXT_DIR, EaseError, build_runs, load_state, new_state, save_state
+from engine.workspace import CONTEXT_DIR, EaseError, build_runs, load_state, new_pr_state, new_state, save_state
 
 PASS = '```json\n{"verdict": "pass", "findings": []}\n```'
 
@@ -293,6 +293,33 @@ def test_a_repo_another_run_is_building_in_is_busy(ws):
         send(ws, "approve")
     assert newest(ws).step == "approve"
     assert branch_of(ws / "app") == "add-a-thing"  # the first run keeps its branch
+
+
+def pr_run_on_main(ws, step):
+    """Save a PR comments run on the branch `app` has checked out, and return its id."""
+    state = new_pr_state("demo", "The PR", "About the PR", "main", "app", 7, "https://pr/7", "abc", "juan", [])
+    state.step = step
+    save_state(ws, state)
+    return state.run_id
+
+
+def test_an_open_pr_comments_run_on_the_branch_blocks_approve(ws):
+    pr_run = pr_run_on_main(ws, "judge")
+    start_run(ws)
+
+    with pytest.raises(EaseError, match=f"is busy with run {pr_run}"):
+        send(ws, "approve")
+    assert newest(ws).step == "approve"
+    assert branch_of(ws / "app") == "main"
+
+
+def test_a_finished_pr_comments_run_on_the_branch_blocks_nothing(ws):
+    pr_run_on_main(ws, "done")
+    start_run(ws)
+
+    send(ws, "approve")
+    assert newest(ws).step == "build"
+    assert branch_of(ws / "app") == "add-a-thing"
 
 
 def test_reviewer_fail_needs_a_finding(ws):
