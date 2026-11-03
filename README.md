@@ -46,6 +46,25 @@ The summary tells you how often Jev agreed with you, and how often you agreed wh
 
 Ticket runs are kept in `.ease-context/ticket-runs/`. Add it to your workspace's `.gitignore`, next to `.ease-context/runs/`.
 
+## PR comments
+
+To work through the open review threads on a PR, run `/ease:pr-comments` with its number or link, or alone for the PR of the current branch, or say so in plain words, for example "handle the comments on PR 12". It never switches branches for you, so check out the PR's branch first.
+
+Each command makes one pass, and it never polls or waits for a re-review. A read-only agent proposes fix or skip for each thread, and Jev picks without seeing the proposal. Once every thread has a verdict, each fix goes through the same steps as a build task, as its own task with up to 3 attempts: worker, checks, commit, reviewer and the decision. When every fix is accepted, the engine pushes the branch once without force, resolves the fixed threads and leaves the skipped ones open. If a fix escalates, the run ends with nothing pushed and nothing resolved. To take another pass, run the command again.
+
+- In shadow mode every thread comes to you with Fix and Skip, at most 4 on a screen. The proposal is marked as recommended, and Jev's pick is marked where it differs.
+- In live mode a thread settles without you when Jev picks the proposal with confidence 0.5 or more, and the summary lists it as settled. Every other thread comes to you.
+
+The skill never posts a comment, reply or review to GitHub. The summary has a drafted reply for each thread, "Resolved by <commit>" or "Skipped because <reason>", and you paste the ones you agree with. A skip is remembered: the next run leaves that thread alone while it has no new comment or only your pasted draft, and judges it again on any other new comment.
+
+A run stops before it changes anything if the PR is closed, merged or from a fork, if the repo has uncommitted changes or is on another branch, if another open run is on that branch, or if your HEAD differs from the PR's head. That includes commits a stopped run left unpushed, which are yours to push or reset. If a run stops midway, say "resume".
+
+Every open thread enters a run, whoever wrote it, so comment text from anyone reaches a worker that has Bash. In live mode that can lead to a pushed fix nobody read first. The protection is that the agents treat comment text as data, not instructions, that the agent proposing fixes has no Edit, Write or Bash tools, and that hidden HTML comments are stripped before any agent or Jev sees the text.
+
+To judge a thread, Jev gets the PR's title and body, the thread's comments and the code around its line, and it judges each fix like any other task. So comment text and your code go to TypeSafe's API.
+
+PR comments runs are kept in `.ease-context/pr-runs/`. Add it to your workspace's `.gitignore`, next to `.ease-context/runs/` and `.ease-context/ticket-runs/`.
+
 ## Project context
 
 `/ease:build` and `/ease:ticket` read a project's `context.md` on their own. To have it in an ordinary conversation, run `/ease:load-context <project>`, or `/ease:load-context` alone for every project in the workspace.
@@ -70,6 +89,7 @@ It lives in your workspace, not in the plugin.
   projects/<name>/project.json   {"repos": {"practice": {"path": "practice", "checks": "npm run lint && npm run build"}}}
   projects/<name>/context.md     optional notes for the planner
   runs/<run_id>/state.json       run state, including the Jev log
+  pr-runs/<run_id>/state.json    a PR comments run's state, including its threads and verdicts
   handoffs/<slug>.md             where a feature stands, written by /ease:handoff
 ```
 
@@ -113,7 +133,8 @@ In shadow mode Jev only watches: the code rule decides. In live mode Jev decides
 - `engine/jev.py` asks Jev its questions.
 - `engine/flow.py` holds the steps, the code rule and the live rule.
 - `engine/ticket.py` holds the ticket flow: the interview, the question rule and the ready rule.
-- `engine/cli.py` is the `start`, `runs`, `next <run_id>` and `reply <run_id>` commands, for build and, after `ticket`, for tickets.
+- `engine/pr_comments.py` holds the PR comments flow: the refusals, the remembered skips, the fix tasks, the push and the summary.
+- `engine/cli.py` is the `start`, `runs`, `next <run_id>` and `reply <run_id>` commands, for build and, after `ticket`, for tickets, and after `pr-comments`, for PR comments runs. `pr-comments start` also takes `--repo <name>`.
 
 Run the tests from a fresh clone:
 

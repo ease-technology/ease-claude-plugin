@@ -340,7 +340,7 @@ def pr_run_on_main(ws, step):
     return state.run_id
 
 
-def test_an_open_pr_comments_run_on_the_branch_blocks_approve(ws):
+def test_an_open_pr_comments_run_on_the_branch_blocks_approve(ws):  # AC4
     pr_run = pr_run_on_main(ws, "judge")
     start_run(ws)
 
