@@ -276,12 +276,26 @@ def finish(state: State, project: Project) -> None:
     state.outcome = "done"
 
 
+class BadReportJson(EaseError, ValueError):
+    """A report's ```json block isn't valid JSON. It stays a ValueError, so a caller can word it for its own report."""
+
+
 def parse_report(text: str) -> dict:
-    """Read the JSON from the last ```json block of an agent's message."""
-    parts = text.split("```json")
-    if len(parts) < 2:
+    """Read the JSON from the last real ```json block of an agent's message: one whose opening and closing fences each
+    stand on their own line. Fence text anywhere else, like in a JSON string or in prose, is only text."""
+    lines = text.split("\n")
+    block = opening = None
+    for number, line in enumerate(lines):
+        if line.strip() == "```json":
+            opening = number
+        elif line.strip() == "```" and opening is not None:
+            block, opening = lines[opening + 1:number], None
+    if block is None:
         raise EaseError("report must end with a ```json block")
-    return json.loads(parts[-1].split("```")[0])
+    try:
+        return json.loads("\n".join(block))
+    except ValueError as error:
+        raise BadReportJson(f"report's ```json block is not valid JSON: {error}") from None
 
 
 def current_task(state: State, project: Project) -> tuple[Task, Repo]:

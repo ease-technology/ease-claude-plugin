@@ -672,6 +672,17 @@ def test_a_null_text_counts_as_empty(ws):
     assert load_pr_state(ws, state.run_id).threads[2].skip_reason == ""
 
 
+def test_a_report_quoting_a_code_fence_is_read_and_moves_to_answer(ws):
+    state = pr_run()
+    text = "A comment mentions ```json and ``` here.\n" + report(("T3", "fix", "Quotes ```json.", "Stop using ```json."))
+
+    assert pr_comments.reply(ws, state, text) == {"ok": True}
+
+    saved = load_pr_state(ws, state.run_id)
+    assert saved.step == "answer"
+    assert (saved.threads[2].skip_reason, saved.threads[2].fix_note) == ("Quotes ```json.", "Stop using ```json.")
+
+
 def test_a_thread_that_has_its_verdict_is_left_alone(ws):
     state = pr_run()
     before = pr_run().threads[:2]
@@ -1008,6 +1019,27 @@ def test_a_question_names_the_place_on_one_line():
     assert pr_comments.question_text(1, odd_path).startswith("Thread 1, odd name.py line 3: ")
 
 
+@pytest.mark.parametrize("body", ["```json", '```json\n{"a": 1}\n```', "Use the ```json block here, not ``` alone."])
+@pytest.mark.parametrize("wrap", ["{}", "My answers.\n```json\n{}\n```"])
+def test_a_comment_with_a_code_fence_cannot_break_the_answers(ws, body, wrap):
+    state = at_answer(ws, judged("T1", body=body, line=1), judged("T2", line=2))
+    first, second = [q["question"] for q in pr_comments.next_action(ws, state)["questions"]]
+    assert "`" not in first
+
+    text = wrap.format(json.dumps({"answers": {first: "Fix", second: "Skip"}}))
+    result = pr_comments.reply(ws, load_pr_state(ws, state.run_id), text)
+
+    assert result == {"ok": True, "rejected": []}
+    assert [t.verdict for t in load_pr_state(ws, state.run_id).threads] == ["fix", "skip"]
+
+
+def test_a_path_with_a_code_fence_cannot_reach_the_question():
+    thread = judged()
+    thread.path = "odd```json.py"
+
+    assert pr_comments.question_text(1, thread).startswith("Thread 1, odd'''json.py line 3: ")
+
+
 @pytest.mark.parametrize("number", [1, 12, 12345])
 def test_a_header_is_at_most_12_characters(number):
     assert len(pr_comments.thread_question(number, judged())["header"]) <= 12
@@ -1087,6 +1119,7 @@ def test_a_thread_with_its_verdict_is_not_asked_again_and_keeps_its_number(ws):
     ("fix\nthe off\nby one", "fix", "the off\nby one", ""),
     ("Skip, it reads fine", "skip", "", "it reads fine"),
     ("skip it reads fine", "skip", "", "it reads fine"),
+    ("fix the ```json block", "fix", "the ```json block", ""),
 ])
 def test_the_answers_it_accepts(ws, words, verdict, instruction, reason):
     state = at_answer(ws, judged("T1"))
@@ -1101,7 +1134,7 @@ def test_the_answers_it_accepts(ws, words, verdict, instruction, reason):
 
 @pytest.mark.parametrize("words", [
     "fixture", "fixes", "skipping", "skipped it", "fix-it", "fix.py is wrong", "prefix", "don't fix", "maybe", "", "  ",
-    None, ["Fix"],
+    None, ["Fix"], "```json", "the ```json block",
 ])
 def test_a_rejected_answer_is_asked_again_and_the_others_are_saved(ws, words):
     state = at_answer(ws, judged("T1", line=1), judged("T2", line=2))
@@ -1126,7 +1159,10 @@ def test_a_thread_with_no_answer_is_asked_again(ws):
     assert [t.verdict for t in saved.threads] == ["", "fix"]
 
 
-@pytest.mark.parametrize("text", ["", "Fix them all", "[1]", '{"answers": 5}', '```json\n{"answers": []}\n```'])
+@pytest.mark.parametrize("text", [
+    "", "Fix them all", "[1]", '{"answers": 5}', '{"answers"', '```json\n{"answers": []}\n```', "```json\n{not json\n```",
+    "Prose that mentions ```json only.",
+])
 def test_answers_that_are_not_the_right_shape_save_nothing(ws, text):
     state = at_answer(ws, judged("T1"))
     saved_before = (state_dir(ws, state) / "state.json").read_text()

@@ -236,12 +236,12 @@ def thread_question(number: int, thread: Thread) -> dict:
 
 
 def question_text(number: int, thread: Thread) -> str:
-    """A question's text. It is the answer's key and passes through a heredoc, so the engine makes it, one line long and
-    different for each thread even when the comments are the same."""
+    """A question's text. It is the answer's key and passes through a heredoc, so the engine makes it, one line long,
+    different for each thread even when the comments are the same, and with no backticks to form a code fence."""
     excerpt = one_line(thread.comments[0]["body"]) if thread.comments else ""
     if len(excerpt) > EXCERPT:
         excerpt = excerpt[:EXCERPT].rstrip() + "..."
-    return f"Thread {number}, {where(thread)}: {excerpt or '(no text)'} Fix or skip?"
+    return f"Thread {number}, {where(thread)}: {excerpt or '(no text)'} Fix or skip?".replace("`", "'")
 
 
 def where(thread: Thread) -> str:

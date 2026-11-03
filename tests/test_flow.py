@@ -189,6 +189,43 @@ def test_empty_reply_is_an_error(ws):
     assert newest(ws).step == "approve"
 
 
+FINDING = {"verdict": "fail", "findings": ["app.py splits on ```json, then on ```, so this report would break."]}
+BLOCK = "```json\n" + json.dumps(FINDING) + "\n```"
+
+
+@pytest.mark.parametrize("text", [
+    BLOCK,
+    "Reviewed.\n" + BLOCK + "\nThat's all.\n",
+    "```json\n" + json.dumps(FINDING, indent=2) + "\n```",
+    "  ```json  \r\n" + json.dumps(FINDING) + "\r\n  ```  \r\n",
+    "Prose that mentions ```json and ``` before the block.\n" + BLOCK,
+    "Prose that mentions ```json before the block, and never closes it.\n" + BLOCK,
+    "A block that never closes:\n```json\n{not json\n" + BLOCK,
+    "Other code:\n```\nprint()\n```\n" + BLOCK + "\n```\n",
+    '```json\n{"verdict": "pass"}\n```\nThat was wrong, so:\n' + BLOCK,
+])
+def test_a_report_reads_only_a_real_block_and_the_last_one(text):
+    assert flow.parse_report(text) == FINDING
+
+
+@pytest.mark.parametrize("text", [
+    "",
+    "Prose that mentions ```json and ``` only.",
+    'Inline ```json {"verdict": "pass"}``` is not a block.',
+    '```json\n{"verdict": "pass"}',  # it never closes
+    '```json\n{"verdict": "pass"}```',  # the closing fence isn't on its own line
+    '```json {"verdict": "pass"}\n```',  # nor is the opening one
+])
+def test_a_report_with_no_real_block_is_refused(text):
+    with pytest.raises(EaseError, match="report must end with a ```json block"):
+        flow.parse_report(text)
+
+
+def test_a_report_with_invalid_json_gets_an_error_to_show():
+    with pytest.raises(EaseError, match="not valid JSON"):
+        flow.parse_report("```json\n{not json\n```")
+
+
 def test_bad_planner_report_leaves_state_unchanged(ws):
     flow.start(ws, None, "Add a thing")
     before = newest(ws)
