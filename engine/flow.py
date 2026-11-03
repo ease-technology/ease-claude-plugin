@@ -166,15 +166,45 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
 
 
 def reply_build(state: State, project: Project) -> dict:
-    """The worker's message is free text. Run the checks, then commit everything (even if they fail)."""
-    task, repo = current_task(state, project)
-    state.checks_ok, state.checks_output = run_checks(repo.path, repo.checks)
-    commit_all(repo.path, task.title)  # after the checks, so it has what they changed
+    """The worker's message is free text. Gate the work, then move on to the review."""
+    gate_build(state, project)
     state.step = "review"
     return {"ok": True}
 
 
+def gate_build(state: State, project: Project) -> None:
+    """Run the checks, then commit everything (even if they fail)."""
+    task, repo = current_task(state, project)
+    state.checks_ok, state.checks_output = run_checks(repo.path, repo.checks)
+    commit_all(repo.path, task.title)  # after the checks, so it has what they changed
+
+
 def reply_review(ws, state: State, project: Project, text: str) -> dict:
+    """Decide with the gate, then act on the decision."""
+    result = gate_review(ws, state, project, text)
+    final = result["decision"]
+    reviewed = state.task + 1
+
+    if final == "accept":
+        if reviewed < len(state.tasks):
+            state.task = reviewed
+            state.attempt = 1
+            state.problems = []
+            state.task_start = head(project.repos[state.tasks[reviewed].repo].path)
+            state.step = "build"
+        else:
+            finish(state, project)
+    elif final == "fix":
+        state.attempt += 1
+        state.step = "build"
+    else:  # escalate
+        state.step = "done"
+        state.outcome = "escalated"
+
+    return {"ok": True, "task": reviewed, **result}
+
+
+def gate_review(ws, state: State, project: Project, text: str) -> dict:
     """Decide with the code rule and ask Jev too. In live mode Jev's answer counts, inside guardrails."""
     report = parse_report(text)
     if report.get("verdict") not in ("pass", "fail"):
@@ -198,32 +228,11 @@ def reply_review(ws, state: State, project: Project, text: str) -> dict:
         final = live_rule(code, jev_choice, jev_confidence, state.attempt, state.problems)
         if final == "escalate" and code != "escalate":  # the summary would have no reason otherwise
             state.problems.insert(0, f"Jev chose to escalate (confidence {jev_confidence:.2f}).")
-    reviewed = state.task + 1
     state.log.append(Decision(
-        task=reviewed, attempt=state.attempt, checks_ok=state.checks_ok, review_ok=review_ok,
+        task=state.task + 1, attempt=state.attempt, checks_ok=state.checks_ok, review_ok=review_ok,
         code=code, final=final, jev=jev_choice, jev_confidence=jev_confidence,
     ))
-
-    if final == "accept":
-        if reviewed < len(state.tasks):
-            state.task = reviewed
-            state.attempt = 1
-            state.problems = []
-            state.task_start = head(project.repos[state.tasks[reviewed].repo].path)
-            state.step = "build"
-        else:
-            finish(state, project)
-    elif final == "fix":
-        state.attempt += 1
-        state.step = "build"
-    else:  # escalate
-        state.step = "done"
-        state.outcome = "escalated"
-
-    return {
-        "ok": True, "task": reviewed, "decision": final, "code": code,
-        "jev": jev_choice, "jev_confidence": jev_confidence,
-    }
+    return {"decision": final, "code": code, "jev": jev_choice, "jev_confidence": jev_confidence}
 
 
 def code_rule(checks_ok: bool, review_ok: bool, attempt: int) -> str:
