@@ -1,11 +1,11 @@
 """The PR comments flow: one pass over a PR's open review threads. So far it starts a run, refuses unsafe states, judges
-the threads, asks the user about them and turns the fixes into tasks."""
+the threads, asks the user about them and takes each fix through the build gate."""
 import json
 import re
 from pathlib import Path
 
 from engine import jev
-from engine.flow import parse_report, spawn
+from engine.flow import gate_build, gate_review, parse_report, reviewer_prompt, spawn, worker_prompt
 from engine.models import Project, PrState, Task, Thread
 from engine.shell import capture, current_branch, git, head, is_dirty, pr_view, repo_name, review_threads, run
 from engine.ticket import RECOMMENDED, question_rule, read_answers
@@ -24,11 +24,17 @@ PER_SCREEN = 4                     # how many threads AskUserQuestion takes at o
 EXCERPT = 80                       # how many characters of the first comment a question shows
 # Fix or Skip, or typed words starting with the whole word: the rest is the instruction or the reason
 ANSWER = re.compile(r"(fix|skip)[:;,.!]*(?:\s+(.*))?", re.IGNORECASE | re.DOTALL)
+NO_CHANGE = "No change was made: this attempt produced no commit."
 
 
 def undecided(state: PrState) -> list[Thread]:
     """The threads with no verdict yet."""
     return [thread for thread in state.threads if not thread.verdict]
+
+
+def fixes(state: PrState) -> list[Thread]:
+    """The threads to fix, one for each task and in the same order."""
+    return [thread for thread in state.threads if thread.verdict == "fix"]
 
 
 # ---------- start ----------
@@ -189,10 +195,16 @@ def next_action(ws, state: PrState) -> dict:
     """Tell the skill what to do now."""
     if state.step == "done":
         return {"type": "done", "summary": summary(state)}
-    if state.step == "judge":
-        return spawn(ws, state, "thread-judge", judge_prompt(state, load_project(ws, state.project)))
     if state.step == "answer":
         return ask_threads(state)
+
+    project = load_project(ws, state.project)
+    if state.step == "judge":
+        return spawn(ws, state, "thread-judge", judge_prompt(state, project))
+    if state.step == "build":
+        return spawn(ws, state, "worker", worker_prompt(state, project))
+    if state.step == "review":
+        return spawn(ws, state, "reviewer", reviewer_prompt(state, project))
     raise EaseError(f"step {state.step} of a PR comments run is not built yet")
 
 
@@ -270,6 +282,10 @@ def reply(ws, state: PrState, text: str) -> dict:
         result = reply_judge(ws, state, text)
     elif state.step == "answer":
         result = reply_answers(ws, state, text)
+    elif state.step == "build":
+        result = reply_build(state, load_project(ws, state.project), text)
+    elif state.step == "review":
+        result = reply_review(ws, state, load_project(ws, state.project), text)
     else:
         raise EaseError(f"step {state.step} of a PR comments run is not built yet")
     save_state(ws, state)
@@ -367,7 +383,7 @@ def after_verdicts(ws, state: PrState) -> None:
     """Once every thread has its verdict, start the first fix, or end the run if there are none."""
     if undecided(state):
         return
-    state.tasks = [fix_task(state, thread) for thread in state.threads if thread.verdict == "fix"]
+    state.tasks = [fix_task(state, thread) for thread in fixes(state)]
     if not state.tasks:
         state.step, state.outcome = "done", "all skipped"
         return
@@ -390,6 +406,44 @@ def fix_task(state: PrState, thread: Thread) -> Task:
         ],
         done_when=f"The change for the thread on {where(thread)} is made, and the checks pass.",
     )
+
+
+def reply_build(state: PrState, project: Project, text: str) -> dict:
+    """The worker's message is free text. Gate the work, and an attempt that made no commit can't pass the review."""
+    if not text.strip():
+        raise EaseError("empty reply")
+    gate_build(state, project)
+    if head(project.repos[state.repo].path) == state.attempt_start:
+        state.checks_ok = False
+        state.checks_output = f"{NO_CHANGE}\n{state.checks_output}".strip()
+    state.step = "review"
+    return {"ok": True}
+
+
+def reply_review(ws, state: PrState, project: Project, text: str) -> dict:
+    """Decide with the gate, then act on the decision. An escalation ends the run with nothing pushed."""
+    result = gate_review(ws, state, project, text)
+    final = result["decision"]
+    reviewed = state.task + 1
+    now = head(project.repos[state.repo].path)
+
+    if final == "accept":
+        fixes(state)[state.task].commit = now  # the last commit, however many attempts it took
+        state.problems = []
+        if reviewed < len(state.tasks):
+            state.task, state.attempt = reviewed, 1
+            state.task_start = state.attempt_start = now
+            state.step = "build"
+        else:
+            state.step = "push"
+    elif final == "fix":
+        state.attempt += 1
+        state.attempt_start = now  # attempt 1 may commit and attempt 2 not
+        state.step = "build"
+    else:  # escalate
+        state.step, state.outcome = "done", "escalated"
+
+    return {"ok": True, "task": reviewed, **result}
 
 
 # ---------- text for the user ----------

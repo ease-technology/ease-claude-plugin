@@ -1241,6 +1241,324 @@ def test_every_skip_ends_the_run_with_no_commit_or_push(ws, checkout, scripted_g
     assert not any("mutation" in arg for call in scripted_gh.calls() for arg in call)
 
 
+# ---------- fixing each thread through the build gate ----------
+
+NO_CHANGE = "No change was made: this attempt produced no commit."
+PASSED = '```json\n{"verdict": "pass", "findings": []}\n```'
+PASSED_WITH_NOTE = '```json\n{"verdict": "pass", "findings": ["a.py: rename x"]}\n```'
+FAILED = '```json\n{"verdict": "fail", "findings": ["a.py: still wrong"]}\n```'
+
+
+def fixing(ws, *verdicts, mode="shadow"):
+    """A saved run at its first build step, with one thread per verdict. Thread n is on line n of a.py."""
+    state = at_answer(ws, *[judged(f"T{number}", line=number) for number in range(1, len(verdicts) + 1)])
+    state.jev_mode = mode
+    save_state(ws, state)
+    return answer(ws, state, dict(enumerate(verdicts, 1)))[1]
+
+
+def one_attempt(ws, run_id, review, *changes):
+    """Worker, then reviewer, reloading the run before each step like the CLI. The fake worker writes the files named
+    in `changes`, or nothing. Returns the reviewer's reply and the saved run."""
+    worker = pr_comments.next_action(ws, load_pr_state(ws, run_id))
+    assert worker["agent"] == "ease:worker"
+    for name in changes:
+        (ws / "app" / name).write_text(name)
+    assert pr_comments.reply(ws, load_pr_state(ws, run_id), "Built it.") == {"ok": True}
+    assert load_pr_state(ws, run_id).step == "review"
+    reviewer = pr_comments.next_action(ws, load_pr_state(ws, run_id))
+    assert reviewer["agent"] == "ease:reviewer"
+    result = pr_comments.reply(ws, load_pr_state(ws, run_id), review)
+    return result, load_pr_state(ws, run_id)
+
+
+def last_prompt(ws, state):
+    return prompt_files(ws, state)[-1].read_text()
+
+
+def checks_pass(repo):
+    """Commit what the checks look for, so an attempt can pass them with no change of its own."""
+    commit_file(repo, "ok.txt", "", "Add ok.txt")
+
+
+def jev_picks(ws, monkeypatch, choice, confidence):
+    """Give Jev a key and one answer to every task. Return the list of request bodies it gets."""
+    give_a_key(ws)
+    return jev_answers(monkeypatch, {"next_action": {"choice": choice, "confidence": confidence}})
+
+
+def nothing_left_the_checkout(ws, scripted_gh, origin_before):
+    assert git_out(ws / "origin.git", "rev-parse", BRANCH) == origin_before
+    assert scripted_gh.calls() == []
+
+
+@pytest.mark.parametrize("mode, jev_pick", [("shadow", "escalate"), ("live", "accept")])
+def test_a_full_pass_takes_each_fix_through_the_gate(ws, checkout, scripted_gh, monkeypatch, mode, jev_pick):  # AC13
+    calls = jev_picks(ws, monkeypatch, jev_pick, 0.9)
+    origin_before = git_out(ws / "origin.git", "rev-parse", BRANCH)
+    start_commit = git_out(checkout, "rev-parse", "HEAD")
+    state = fixing(ws, "Fix", "Skip", "Fix", mode=mode)
+
+    result, saved = one_attempt(ws, state.run_id, PASSED, "ok.txt", "first.txt")
+    first_commit = git_out(checkout, "rev-parse", "HEAD")
+    assert first_commit != start_commit
+    assert (result["ok"], result["task"], result["decision"], result["code"]) == (True, 1, "accept", "accept")
+    assert result["jev"] == jev_pick
+    assert (saved.step, saved.task, saved.attempt) == ("build", 1, 1)
+    assert (saved.task_start, saved.attempt_start) == (first_commit, first_commit)
+    assert "first.txt" in calls[-1]["state"]["diff"]  # judge_task saw the task's commit
+
+    pr_comments.next_action(ws, saved)
+    assert "Task 2/2: Fix a.py line 3" in last_prompt(ws, saved)
+
+    result, saved = one_attempt(ws, state.run_id, PASSED, "second.txt")
+    second_commit = git_out(checkout, "rev-parse", "HEAD")
+    assert (result["task"], result["decision"]) == (2, "accept")
+    assert saved.step == "push"
+    assert (saved.outcome, saved.pushed) == ("", False)
+    assert [thread.commit for thread in saved.threads] == [first_commit, "", second_commit]
+    assert not any(thread.resolved for thread in saved.threads)
+
+    assert [(d.task, d.attempt, d.code, d.final, d.jev) for d in saved.log] == [
+        (1, 1, "accept", "accept", jev_pick), (2, 1, "accept", "accept", jev_pick),
+    ]
+    assert [call["state"]["task"]["title"] for call in calls] == ["Fix a.py line 1", "Fix a.py line 3"]
+    subjects = git_out(checkout, "log", "--format=%s", f"{start_commit}..HEAD").splitlines()
+    assert subjects == ["Fix a.py line 3", "Fix a.py line 1"]  # the gate commits under the engine's titles
+    assert not git_out(checkout, "status", "--porcelain")
+    nothing_left_the_checkout(ws, scripted_gh, origin_before)
+
+
+def test_the_agents_get_the_build_gates_prompts(ws, checkout):  # AC13
+    state = fixing(ws, "Fix the bounds")
+    start_commit = git_out(checkout, "rev-parse", "HEAD")
+
+    assert pr_comments.next_action(ws, state)["agent"] == "ease:worker"
+    worker = last_prompt(ws, state)
+    assert "# Build one task" in worker
+    assert "Task 1/1: Fix a.py line 1" in worker
+    assert "What to change: the bounds" in worker
+    assert "Before you finish, run the checks: `test -f ok.txt`" in worker
+
+    (checkout / "work.txt").write_text("work")
+    pr_comments.reply(ws, load_pr_state(ws, state.run_id), "Built it.")
+    saved = load_pr_state(ws, state.run_id)
+    assert saved.checks_ok is False  # the checks ran: no ok.txt
+    assert git_out(checkout, "log", "-1", "--format=%s") == "Fix a.py line 1"  # committed even though they failed
+
+    assert pr_comments.next_action(ws, saved)["agent"] == "ease:reviewer"
+    reviewer = last_prompt(ws, saved)
+    assert "# Review one task" in reviewer
+    assert f"diff {start_commit} HEAD" in reviewer
+    assert "Checks FAILED:" in reviewer
+
+
+@pytest.mark.parametrize("mode, jev_pick, confidence, review, code, final, step, attempt", [
+    ("live", "fix", 0.9, PASSED_WITH_NOTE, "accept", "fix", "build", 2),       # Jev decides, even against the code rule
+    ("live", "escalate", 0.7, PASSED, "accept", "escalate", "done", 1),
+    ("live", "accept", 0.9, FAILED, "fix", "fix", "build", 2),                 # failing work is never accepted
+    ("live", "fix", 0.3, PASSED_WITH_NOTE, "accept", "accept", "push", 1),     # Jev isn't sure: the code rule stands
+    ("live", "fix", 0.9, PASSED, "accept", "accept", "push", 1),               # nothing to fix: the code rule stands
+    ("shadow", "fix", 0.9, PASSED_WITH_NOTE, "accept", "accept", "push", 1),   # shadow: Jev is only logged
+    ("shadow", "escalate", 0.9, PASSED, "accept", "accept", "push", 1),
+])
+def test_the_live_rule_decides_only_in_live_mode(
+    ws, checkout, monkeypatch, mode, jev_pick, confidence, review, code, final, step, attempt,
+):  # AC13
+    jev_picks(ws, monkeypatch, jev_pick, confidence)
+    state = fixing(ws, "Fix", mode=mode)
+
+    result, saved = one_attempt(ws, state.run_id, review, "ok.txt")
+
+    assert (result["code"], result["decision"], result["jev"]) == (code, final, jev_pick)
+    assert (saved.step, saved.attempt) == (step, attempt)
+    assert (saved.log[-1].code, saved.log[-1].final) == (code, final)
+    assert saved.threads[0].commit == (git_out(checkout, "rev-parse", "HEAD") if final == "accept" else "")
+
+
+def test_jev_escalating_in_live_mode_says_why_and_pushes_nothing(ws, checkout, scripted_gh, monkeypatch):  # AC13, AC15
+    jev_picks(ws, monkeypatch, "escalate", 0.7)
+    origin_before = git_out(ws / "origin.git", "rev-parse", BRANCH)
+    state = fixing(ws, "Fix", "Fix", mode="live")
+
+    _, saved = one_attempt(ws, state.run_id, PASSED, "ok.txt")
+
+    assert (saved.step, saved.outcome, saved.task) == ("done", "escalated", 0)
+    assert saved.problems == ["Jev chose to escalate (confidence 0.70)."]
+    assert [thread.commit for thread in saved.threads] == ["", ""]
+    nothing_left_the_checkout(ws, scripted_gh, origin_before)
+
+
+@pytest.mark.parametrize("mode, jev_pick", [("shadow", None), ("live", "accept")])
+def test_no_commit_on_attempt_1_is_not_accepted_and_the_next_worker_is_told(
+    ws, checkout, monkeypatch, mode, jev_pick,
+):  # AC14
+    checks_pass(checkout)
+    if jev_pick:
+        jev_picks(ws, monkeypatch, jev_pick, 0.9)
+    state = fixing(ws, "Fix", mode=mode)
+    start_commit = git_out(checkout, "rev-parse", "HEAD")
+
+    pr_comments.next_action(ws, state)
+    pr_comments.reply(ws, load_pr_state(ws, state.run_id), "I looked and it seems fine.")
+    saved = load_pr_state(ws, state.run_id)
+    assert saved.checks_ok is False  # the repo's checks passed, but no change was made
+    assert saved.checks_output.startswith(NO_CHANGE)
+    assert git_out(checkout, "rev-parse", "HEAD") == start_commit
+
+    pr_comments.next_action(ws, saved)
+    assert "Checks FAILED:" in last_prompt(ws, saved)
+    assert NO_CHANGE in last_prompt(ws, saved)  # the reviewer sees it too
+
+    result = pr_comments.reply(ws, load_pr_state(ws, state.run_id), PASSED)  # even a reviewer's pass can't accept it
+    saved = load_pr_state(ws, state.run_id)
+    assert result["decision"] == "fix"
+    assert (saved.step, saved.attempt, saved.threads[0].commit) == ("build", 2, "")
+    assert NO_CHANGE in saved.problems[0]
+
+    pr_comments.next_action(ws, saved)
+    assert NO_CHANGE in last_prompt(ws, saved)
+
+
+def test_the_no_change_words_go_above_what_the_checks_printed(ws, checkout):  # AC14
+    write_project(ws, "demo", {"app": {"path": "app", "checks": "echo boom; false"}})
+    state = fixing(ws, "Fix")
+
+    pr_comments.reply(ws, state, "Built it.")
+
+    assert load_pr_state(ws, state.run_id).checks_output == f"{NO_CHANGE}\nboom"
+
+
+def test_no_commit_on_attempt_2_after_a_commit_on_attempt_1_is_not_accepted(ws, checkout):  # AC14
+    state = fixing(ws, "Fix")
+
+    _, saved = one_attempt(ws, state.run_id, FAILED, "ok.txt")
+    first_commit = git_out(checkout, "rev-parse", "HEAD")
+    assert (saved.attempt, saved.attempt_start) == (2, first_commit)
+    assert saved.task_start != first_commit
+    assert saved.problems == ["a.py: still wrong"]
+
+    result, saved = one_attempt(ws, state.run_id, PASSED)
+    assert (result["code"], saved.step, saved.attempt, saved.threads[0].commit) == ("fix", "build", 3, "")
+    assert saved.attempt_start == first_commit
+    pr_comments.next_action(ws, saved)
+    assert NO_CHANGE in last_prompt(ws, saved)
+
+    result, saved = one_attempt(ws, state.run_id, PASSED, "third.txt")  # a commit at last: it can be accepted
+    assert (result["decision"], saved.step) == ("accept", "push")
+    assert saved.threads[0].commit == git_out(checkout, "rev-parse", "HEAD") != first_commit
+
+
+def test_a_commit_the_worker_made_itself_counts(ws, checkout):  # AC14
+    state = fixing(ws, "Fix")
+
+    pr_comments.next_action(ws, state)
+    commit_file(checkout, "ok.txt", "", "The worker's own commit")
+    pr_comments.reply(ws, load_pr_state(ws, state.run_id), "Built and committed it.")
+    saved = load_pr_state(ws, state.run_id)
+
+    assert saved.checks_ok is True
+    assert NO_CHANGE not in saved.checks_output
+
+
+@pytest.mark.parametrize("last_changes, says_no_change", [(["last.txt"], False), ([], True)])
+def test_an_escalation_on_attempt_3_ends_the_run_and_starts_nothing_later(
+    ws, checkout, scripted_gh, last_changes, says_no_change,
+):  # AC14, AC15
+    origin_before = git_out(ws / "origin.git", "rev-parse", BRANCH)
+    state = fixing(ws, "Fix", "Skip", "Fix", "Fix")
+
+    _, saved = one_attempt(ws, state.run_id, PASSED, "ok.txt")
+    accepted_commit = git_out(checkout, "rev-parse", "HEAD")
+    one_attempt(ws, state.run_id, FAILED, "try1.txt")
+    one_attempt(ws, state.run_id, FAILED, "try2.txt")
+    head_before_last = git_out(checkout, "rev-parse", "HEAD")
+    result, saved = one_attempt(ws, state.run_id, FAILED, *last_changes)
+
+    assert result["decision"] == "escalate"
+    assert (saved.step, saved.outcome, saved.task, saved.attempt) == ("done", "escalated", 1, 3)
+    assert "a.py: still wrong" in saved.problems
+    assert any(NO_CHANGE in problem for problem in saved.problems) is says_no_change
+    assert (git_out(checkout, "rev-parse", "HEAD") == head_before_last) is says_no_change
+
+    assert [thread.commit for thread in saved.threads] == [accepted_commit, "", "", ""]
+    assert not any(thread.resolved for thread in saved.threads)
+    assert saved.pushed is False
+    nothing_left_the_checkout(ws, scripted_gh, origin_before)
+
+    assert pr_comments.next_action(ws, saved)["type"] == "done"
+    assert pr_comments.open_runs(ws) == {"runs": []}
+    with pytest.raises(EaseError, match="this run is done"):
+        pr_comments.reply(ws, saved, PASSED)
+    prompts = [prompt.read_text() for prompt in prompt_files(ws, saved)]
+    assert sum("Task 1/3:" in prompt for prompt in prompts) == 1
+    assert sum("Task 2/3:" in prompt for prompt in prompts) == 3
+    assert not any("Task 3/3:" in prompt for prompt in prompts)
+
+
+def test_a_thread_with_two_attempts_cites_the_last_commit(ws, checkout):
+    state = fixing(ws, "Fix", "Fix")
+
+    _, saved = one_attempt(ws, state.run_id, FAILED, "try1.txt")
+    first_try = git_out(checkout, "rev-parse", "HEAD")
+    assert saved.threads[0].commit == ""
+    pr_comments.next_action(ws, saved)
+    assert "a.py: still wrong" in last_prompt(ws, saved)
+
+    _, saved = one_attempt(ws, state.run_id, PASSED_WITH_NOTE, "ok.txt")
+    last_try = git_out(checkout, "rev-parse", "HEAD")
+
+    assert first_try != last_try
+    assert saved.threads[0].commit == last_try
+    assert saved.threads[1].commit == ""
+    assert (saved.task, saved.attempt, saved.step) == (1, 1, "build")  # the next fix starts afresh
+    assert (saved.task_start, saved.attempt_start) == (last_try, last_try)
+    assert saved.problems == []
+    pr_comments.next_action(ws, saved)
+    assert "Problems from the last attempt" not in last_prompt(ws, saved)
+
+
+def test_the_review_of_a_later_attempt_shows_the_whole_task(ws, checkout):
+    state = fixing(ws, "Fix")
+    start_commit = git_out(checkout, "rev-parse", "HEAD")
+
+    one_attempt(ws, state.run_id, FAILED, "try1.txt")
+    pr_comments.next_action(ws, load_pr_state(ws, state.run_id))
+    (checkout / "try2.txt").write_text("try2")
+    pr_comments.reply(ws, load_pr_state(ws, state.run_id), "Built it.")
+    saved = load_pr_state(ws, state.run_id)
+    pr_comments.next_action(ws, saved)
+
+    assert f"diff {start_commit} HEAD" in last_prompt(ws, saved)
+
+
+def test_an_empty_worker_reply_is_refused_before_the_gate(ws, checkout):
+    state = fixing(ws, "Fix")
+    (checkout / "work.txt").write_text("work")
+    head_before = git_out(checkout, "rev-parse", "HEAD")
+
+    with pytest.raises(EaseError, match="empty reply"):
+        pr_comments.reply(ws, load_pr_state(ws, state.run_id), " \n")
+
+    assert load_pr_state(ws, state.run_id).step == "build"
+    assert git_out(checkout, "rev-parse", "HEAD") == head_before
+
+
+@pytest.mark.parametrize("text", ["No block here.", '```json\n{"verdict": "maybe"}\n```', '```json\n{"verdict": "fail"}\n```'])
+def test_a_bad_review_report_changes_nothing_and_can_be_sent_again(ws, checkout, text):
+    state = fixing(ws, "Fix")
+    (checkout / "ok.txt").write_text("")
+    pr_comments.reply(ws, load_pr_state(ws, state.run_id), "Built it.")
+    saved_before = (state_dir(ws, state) / "state.json").read_text()
+
+    with pytest.raises(EaseError):
+        pr_comments.reply(ws, load_pr_state(ws, state.run_id), text)
+
+    assert (state_dir(ws, state) / "state.json").read_text() == saved_before
+    pr_comments.reply(ws, load_pr_state(ws, state.run_id), PASSED)
+    assert load_pr_state(ws, state.run_id).step == "push"
+
+
 # ---------- the command line ----------
 
 def cli(capsys, monkeypatch, args, stdin=""):
