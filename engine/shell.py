@@ -159,8 +159,8 @@ def gh_json(cwd, *args: str):
 
 
 def pr_view(cwd, ref) -> dict:
-    """The PR's details. `ref` is a number or a link."""
-    return gh_json(cwd, "pr", "view", str(ref), "--json", PR_FIELDS)
+    """The PR's details. `ref` is a number or a link; empty means the PR of the current branch."""
+    return gh_json(cwd, "pr", "view", *([str(ref)] if ref else []), "--json", PR_FIELDS)
 
 
 def repo_name(cwd) -> str:

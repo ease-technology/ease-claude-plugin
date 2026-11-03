@@ -190,6 +190,14 @@ def test_pr_view_asks_for_the_fields_a_run_needs(tmp_path, scripted_gh):
     ]
 
 
+def test_pr_view_with_no_ref_asks_for_the_current_branchs_pr(tmp_path, scripted_gh):
+    scripted_gh.answer({"match": "pr view", "stdout": {"number": 7}})
+
+    shell.pr_view(tmp_path, "")
+
+    assert scripted_gh.calls()[0][:3] == ["pr", "view", "--json"]
+
+
 def test_repo_name_gives_owner_and_name(tmp_path, scripted_gh):
     scripted_gh.answer({"match": "repo view", "stdout": {"nameWithOwner": "acme/app"}})
 

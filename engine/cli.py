@@ -1,15 +1,17 @@
-"""Command line: start / runs / next / reply for build runs, and the same after `ticket` for ticket runs.
-next and reply name their run, so several sessions can each drive their own. Every outcome prints exactly
-one JSON object."""
+"""Command line: start / runs / next / reply for build runs, and the same after `ticket` for ticket runs and after
+`pr-comments` for PR comments runs. next and reply name their run, so several sessions can each drive their own.
+Every outcome prints exactly one JSON object."""
 import json
 import sys
 
-from engine import flow, ticket
-from engine.workspace import EaseError, find_workspace, load_state, load_ticket_state
+from engine import flow, pr_comments, ticket
+from engine.workspace import EaseError, find_workspace, load_pr_state, load_state, load_ticket_state
 
 USAGE = (
-    "usage: ease-engine [ticket] start [project] | start [project] --branch <name>"
-    " | [ticket] runs | [ticket] next <run_id> | [ticket] reply <run_id>  (text on stdin)"
+    "usage: ease-engine [ticket | pr-comments] start [project] | start [project] --branch <name>"
+    " | pr-comments start [project] --repo <name>"
+    " | [ticket | pr-comments] runs | [ticket | pr-comments] next <run_id>"
+    " | [ticket | pr-comments] reply <run_id>  (text on stdin)"
 )
 
 
@@ -20,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
         ws = find_workspace()
         if args[:1] == ["ticket"]:
             result = command(ws, args[1:], ticket, load_ticket_state)
+        elif args[:1] == ["pr-comments"]:
+            result = command(ws, args[1:], pr_comments, load_pr_state)
         else:
             result = command(ws, args, flow, load_state)
     except EaseError as error:
@@ -33,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def command(ws, args: list[str], steps, load) -> dict:
-    """start / runs / next / reply. `steps` is the flow or the ticket module; `load` reads one of its runs."""
+    """start / runs / next / reply. `steps` is the flow, ticket or pr_comments module; `load` reads one of its runs."""
     if args == ["runs"]:
         return steps.open_runs(ws)
     if len(args) == 2 and args[0] == "next":
@@ -44,4 +48,6 @@ def command(ws, args: list[str], steps, load) -> dict:
         return steps.start(ws, args[1] if len(args) == 2 else None, sys.stdin.read())
     if steps is flow and len(args) in (3, 4) and args[0] == "start" and args[-2] == "--branch":  # only builds branch
         return flow.start(ws, args[1] if len(args) == 4 else None, sys.stdin.read(), args[-1])
+    if steps is pr_comments and len(args) in (3, 4) and args[0] == "start" and args[-2] == "--repo":
+        return pr_comments.start(ws, args[1] if len(args) == 4 else None, sys.stdin.read(), args[-1])
     raise EaseError(USAGE)
