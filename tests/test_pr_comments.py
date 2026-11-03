@@ -53,6 +53,7 @@ def test_a_run_loads_back_equal(ws):  # AC5: a stopped run continues from what w
     state.attempt_start = "abc123"
     state.pushed = True
     state.push_error = "rejected"
+    state.unpushed = "def456 Fix a.py line 3"
     save_state(ws, state)
 
     assert load_pr_state(ws, state.run_id) == state
@@ -1257,6 +1258,7 @@ def fixing(ws, *verdicts, mode="shadow"):
     """A saved run at its first build step, with one thread per verdict. Thread n is on line n of a.py."""
     state = at_answer(ws, *[judged(f"T{number}", line=number) for number in range(1, len(verdicts) + 1)])
     state.jev_mode = mode
+    state.pr_head = git_out(ws / "app", "rev-parse", "HEAD")
     save_state(ws, state)
     return answer(ws, state, dict(enumerate(verdicts, 1)))[1]
 
@@ -1705,6 +1707,7 @@ def test_the_push_is_saved_before_the_first_resolve(ws, checkout, scripted_gh, p
 
     saved = load_pr_state(ws, state.run_id)
     assert (saved.step, saved.pushed, saved.threads[0].resolved) == ("push", True, False)
+    assert saved.threads[0].draft == f"Resolved by {git_out(checkout, 'rev-parse', 'HEAD')}"
 
     pr_comments.next_action(ws, saved)
 
@@ -2078,12 +2081,13 @@ def test_a_new_skip_gives_the_next_run_its_reason(ws, checkout, scripted_gh):  #
     second = run_on(ws, checkout, scripted_gh, comment("C1"), comment("C2"))
     pr_comments.reply(ws, second, report(("T1", "skip")))
     _, saved = answer(ws, load_pr_state(ws, second.run_id), {1: "Skip a newer reason"})
-    assert saved.threads[0].draft == ""  # the old draft no longer applies
+    assert saved.threads[0].draft == "Skipped because a newer reason"  # the old draft no longer applies
     older_run(ws, saved, 2)
 
     third = run_on(ws, checkout, scripted_gh, comment("C1"), comment("C2"))
 
     assert (third.step, third.threads[0].reason, third.threads[0].decided_by) == ("done", "a newer reason", "earlier")
+    assert third.threads[0].draft == "Skipped because a newer reason"
 
 
 def test_a_fix_verdict_replaces_an_older_skip(ws, checkout, scripted_gh):
@@ -2162,6 +2166,247 @@ def test_a_hand_pushed_fix_left_open_is_resolved_only_if_this_run_pushes_a_fix(
     assert len(pushes) == pushed
     assert resolves(scripted_gh) == resolved
     assert saved.threads[0].resolved is bool(resolved)
+
+
+# ---------- the summary ----------
+
+def summary_of(state):
+    """The text the skill is given at the end of a run."""
+    action = pr_comments.next_action(None, state)  # at step done it needs no workspace
+    assert action["type"] == "done"
+    return action["summary"]
+
+
+def sha_of(checkout):
+    return git_out(checkout, "rev-parse", "HEAD")
+
+
+def test_a_run_with_no_threads_still_lists_everything(ws, checkout, scripted_gh):  # AC21
+    gh_says(scripted_gh, checkout)
+
+    assert summary_of(started(ws)) == "\n".join([
+        "Outcome: no open threads",
+        f"Branch: {BRANCH}",
+        f"PR: {URL}",
+        "Jev mode: shadow",
+        "Settled by Jev:",
+        "(none)",
+        "Skipped earlier:",
+        "(none)",
+        "Jev agreed with you on 0 of 0 threads",
+        "Drafted replies:",
+        "(none)",
+    ])
+
+
+def test_an_all_skip_run_has_a_draft_for_each_and_no_commit(ws, checkout, scripted_gh):  # AC20, AC21
+    head_before = sha_of(checkout)
+    no_words = judged("T3", line=3)
+    no_words.skip_reason = ""
+    state = at_answer(ws, judged("T1", line=1), judged("T2", line=2), no_words)
+
+    _, saved = answer(ws, state, {1: "Skip not needed", 2: "Skip", 3: "Skip"})
+
+    assert [thread.draft for thread in saved.threads] == [
+        "Skipped because not needed", "Skipped because No change needed.", "Skipped, no reason was given.",
+    ]
+    assert summary_of(saved) == "\n".join([
+        "Outcome: all skipped",
+        f"Branch: {BRANCH}",
+        f"PR: {URL}",
+        "Jev mode: shadow",
+        "Settled by Jev:",
+        "(none)",
+        "Skipped earlier:",
+        "(none)",
+        "Jev agreed with you on 0 of 0 threads",
+        "Drafted replies:",
+        "- a.py line 1: Skipped because not needed",
+        "- a.py line 2: Skipped because No change needed.",
+        "- a.py line 3: Skipped, no reason was given.",
+    ])
+    assert sha_of(checkout) == head_before
+    assert scripted_gh.calls() == []
+
+
+def test_a_pushed_run_drafts_the_full_sha_of_each_fixs_last_commit(ws, checkout, scripted_gh, pushes):  # AC20
+    scripted_gh.answer(RESOLVED)
+    state = fixing(ws, "Fix", "Skip not needed", "Fix")
+
+    one_attempt(ws, state.run_id, FAILED, "ok.txt", "try1.txt")
+    first_try = sha_of(checkout)
+    one_attempt(ws, state.run_id, PASSED, "try2.txt")
+    first = sha_of(checkout)
+    _, saved = one_attempt(ws, state.run_id, PASSED, "second.txt")
+    second = sha_of(checkout)
+
+    assert first != first_try and len(first) == 40
+    assert summary_of(saved) == "\n".join([
+        "Outcome: pushed",
+        f"Branch: {BRANCH}",
+        f"PR: {URL}",
+        "Jev mode: shadow",
+        "Settled by Jev:",
+        "(none)",
+        "Skipped earlier:",
+        "(none)",
+        "Jev agreed with you on 0 of 0 threads",
+        "Drafted replies:",
+        f"- a.py line 1: Resolved by {first}",
+        "- a.py line 2: Skipped because not needed",
+        f"- a.py line 3: Resolved by {second}",
+    ])
+
+
+def test_the_summary_lists_the_threads_jev_settled(ws, checkout, monkeypatch):  # AC10
+    state = judged_by_jev(ws, monkeypatch, "live", ("skip", "skip", 0.9), ("fix", "skip", 0.9))
+    assert (state.threads[0].decided_by, state.threads[1].verdict) == ("jev", "")
+
+    _, saved = answer(ws, state, {2: "Skip it reads fine"})
+
+    text = summary_of(saved)
+    assert "Jev mode: live\n" in text
+    assert "Settled by Jev:\n- a.py line 3: skip\nSkipped earlier:" in text
+    assert "Jev agreed with you on 1 of 1 threads\n" in text
+    assert text.endswith(
+        "Drafted replies:\n"
+        "- a.py line 3: Skipped because No change needed.\n"
+        "- a.py line 3: Skipped because it reads fine"
+    )
+
+
+def test_only_your_threads_with_a_jev_pick_count_towards_the_agreement():  # AC12
+    def decided(who, verdict, pick):
+        return Thread("T", "a.py", 3, False, [], jev=pick, verdict=verdict, decided_by=who)
+
+    state = new_pr_state(
+        "demo", "PR 7", "Threads.", BRANCH, "app", 7, URL, "abc", "juan",
+        [
+            decided("you", "fix", "fix"),
+            decided("you", "skip", "skip"),
+            decided("you", "fix", "skip"),
+            decided("you", "skip", None),      # Jev had no pick
+            decided("jev", "skip", "skip"),    # nothing to agree with
+            decided("earlier", "skip", None),  # an earlier run's decision
+        ],
+    )
+    state.step, state.outcome = "done", "all skipped"
+
+    assert "Jev agreed with you on 2 of 3 threads" in summary_of(state)
+
+
+def test_an_escalation_lists_what_was_accepted_stuck_not_started_and_drafted(ws, checkout, scripted_gh):  # AC15
+    state = fixing(ws, "Fix", "Skip not needed", "Fix", "Fix")
+
+    one_attempt(ws, state.run_id, PASSED, "ok.txt")
+    accepted = sha_of(checkout)
+    one_attempt(ws, state.run_id, FAILED, "try1.txt")
+    one_attempt(ws, state.run_id, FAILED, "try2.txt")
+    _, saved = one_attempt(ws, state.run_id, FAILED, "try3.txt")
+
+    assert summary_of(saved) == "\n".join([
+        "Outcome: escalated",
+        f"Branch: {BRANCH}",
+        f"PR: {URL}",
+        "Jev mode: shadow",
+        "Settled by Jev:",
+        "(none)",
+        "Skipped earlier:",
+        "(none)",
+        "Jev agreed with you on 0 of 0 threads",
+        "Accepted fixes, not pushed:",
+        f"- a.py line 1: {accepted}",
+        "Stuck on a.py line 3:",
+        "- a.py: still wrong",
+        "Threads not started:",
+        "- a.py line 4",
+        "Drafted replies:",
+        "- a.py line 2: Skipped because not needed",
+    ])
+
+
+def test_a_rejected_push_names_the_unpushed_commits_and_the_whole_error(ws, checkout, scripted_gh, pushes):  # AC17
+    state = fixing(ws, "Fix", "Skip not needed", "Fix")
+    start = state.pr_head
+    origin_moves_on(checkout)
+
+    one_attempt(ws, state.run_id, PASSED, "ok.txt")
+    _, saved = one_attempt(ws, state.run_id, PASSED, "second.txt")
+
+    commits = git_out(checkout, "log", "--oneline", f"{start}..HEAD").splitlines()
+    assert len(commits) == 2
+    assert saved.unpushed.splitlines() == commits
+    assert "rejected" in saved.push_error and BRANCH in saved.push_error
+    text = summary_of(saved)
+    assert f"Unpushed commits:\n- {commits[0]}\n- {commits[1]}\n" in text
+    assert f"\nPush error:\n{saved.push_error}\n" in text
+    assert "Resolved by" not in text  # nothing was pushed, so no fix has a reply yet
+    assert [thread.draft for thread in saved.threads] == ["", "Skipped because not needed", ""]
+    assert text.endswith("Drafted replies:\n- a.py line 2: Skipped because not needed")
+
+
+def test_a_failed_resolve_is_listed_as_pushed_but_not_resolved_with_its_error(
+    ws, checkout, scripted_gh, pushes,
+):  # AC18
+    scripted_gh.answer({"match": "id=T2", "stderr": "gh: Resource not accessible\n", "code": 1}, RESOLVED)
+    state = fixing(ws, "Fix", "Fix")
+
+    one_attempt(ws, state.run_id, PASSED, "ok.txt")
+    first = sha_of(checkout)
+    _, saved = one_attempt(ws, state.run_id, PASSED, "second.txt")
+    second = sha_of(checkout)
+
+    error = saved.threads[1].resolve_error
+    assert "Resource not accessible" in error
+    text = summary_of(saved)
+    assert text.count("Pushed but not resolved:") == 1
+    assert f"Pushed but not resolved:\n- a.py line 2: {error}\nDrafted replies:" in text
+    assert f"- a.py line 1: Resolved by {first}\n- a.py line 2: Resolved by {second}" in text  # both commits are pushed
+
+
+def test_a_run_with_every_thread_resolved_lists_none_as_not_resolved(ws, checkout, scripted_gh, pushes):  # AC18
+    scripted_gh.answer(RESOLVED)
+    state = fixing(ws, "Fix")
+
+    _, saved = one_attempt(ws, state.run_id, PASSED, "ok.txt")
+
+    assert "not resolved" not in summary_of(saved)
+
+
+def test_an_earlier_skip_is_listed_with_the_draft_its_run_stored(ws, checkout, scripted_gh):  # AC22
+    first = run_on(ws, checkout, scripted_gh, comment("C1"))
+    pr_comments.reply(ws, first, report(("T1", "skip", REASON, "Change it.")))
+    _, saved = answer(ws, load_pr_state(ws, first.run_id), {1: "Skip"})
+    older_run(ws, saved, 1)
+
+    text = summary_of(run_on(ws, checkout, scripted_gh, comment("C1")))
+
+    assert f"Skipped earlier:\n- a.py line 3: Skipped because {REASON}\n" in text
+    assert text.endswith("Drafted replies:\n(none)")  # it is listed once
+
+
+def test_a_posted_draft_is_listed_as_skipped_earlier(ws, checkout, scripted_gh):  # AC23
+    skipped_before(ws, checkout, scripted_gh, comment("C1"))
+    state = run_on(ws, checkout, scripted_gh, comment("C1"), posted("C2", "juan"))
+
+    pr_comments.reply(ws, state, flagged_report())
+
+    text = summary_of(load_pr_state(ws, state.run_id))
+    assert f"Skipped earlier:\n- a.py line 3: {DRAFT}\n" in text
+    assert text.endswith("Drafted replies:\n(none)")
+
+
+def test_a_thread_skipped_again_gets_a_new_draft_not_the_stored_one(ws, checkout, scripted_gh):  # AC24
+    skipped_before(ws, checkout, scripted_gh, comment("C1"))
+    state = run_on(ws, checkout, scripted_gh, comment("C1"), comment("C2"))
+    pr_comments.reply(ws, state, report(("T1", "skip")))
+
+    _, saved = answer(ws, load_pr_state(ws, state.run_id), {1: "Skip a newer reason"})
+
+    text = summary_of(saved)
+    assert DRAFT not in text
+    assert "Skipped earlier:\n(none)\n" in text
+    assert text.endswith("Drafted replies:\n- a.py line 3: Skipped because a newer reason")
 
 
 # ---------- the command line ----------

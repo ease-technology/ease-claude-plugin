@@ -1,6 +1,6 @@
 """The PR comments flow: one pass over a PR's open review threads. So far it starts a run, refuses unsafe states,
-recalls earlier skips, judges the threads, asks the user about them, takes each fix through the build gate, pushes and
-resolves the fixed threads."""
+recalls earlier skips, judges the threads, asks the user about them, takes each fix through the build gate, pushes,
+resolves the fixed threads and ends with a summary of drafted replies."""
 import json
 import re
 from pathlib import Path
@@ -31,6 +31,7 @@ EXCERPT = 80                       # how many characters of the first comment a 
 # Fix or Skip, or typed words starting with the whole word: the rest is the instruction or the reason
 ANSWER = re.compile(r"(fix|skip)[:;,.!]*(?:\s+(.*))?", re.IGNORECASE | re.DOTALL)
 NO_CHANGE = "No change was made: this attempt produced no commit."
+NO_REASON = "Skipped, no reason was given."
 
 
 def undecided(state: PrState) -> list[Thread]:
@@ -421,12 +422,13 @@ def reply_answers(ws, state: PrState, text: str) -> dict:
 
 def decide(thread: Thread, verdict: str, words: str, who: str) -> None:
     """Give a thread its verdict. With no words of its own, it takes the agent's text for that verdict. An earlier run's
-    draft no longer applies."""
+    draft no longer applies: a skip's new one is known now, and a fix's only once its commit is pushed."""
     thread.verdict, thread.decided_by, thread.draft = verdict, who, ""
     if verdict == "fix":
         thread.instruction = words or thread.fix_note.strip()
     else:
         thread.reason = words or thread.skip_reason.strip()
+        thread.draft = f"Skipped because {thread.reason}" if thread.reason else NO_REASON
 
 
 def after_verdicts(ws, state: PrState) -> None:
@@ -507,10 +509,13 @@ def push_and_resolve(ws, state: PrState, project: Project) -> None:
     if not state.pushed:
         pushed, output = push_branch(path, state.branch)
         if not pushed:
+            state.unpushed = git(path, "log", "--oneline", f"{state.pr_head}..HEAD")
             state.push_error, state.outcome, state.step = output, "push_failed", "done"
             save_state(ws, state)
             return
         state.pushed = True
+        for thread in fixes(state):
+            thread.draft = f"Resolved by {thread.commit}"
         save_state(ws, state)
 
     for thread in fixes(state):
@@ -530,8 +535,42 @@ def push_and_resolve(ws, state: PrState, project: Project) -> None:
 # ---------- text for the user ----------
 
 def summary(state: PrState) -> str:
-    """How the run ended."""
-    return "\n".join([f"Outcome: {state.outcome}", f"Branch: {state.branch}", f"PR: {state.pr_url}"])
+    """How the run ended: what every outcome lists, and what an outcome that left work undone adds."""
+    asked = [thread for thread in state.threads if thread.decided_by == "you" and thread.jev]
+    agreed = [thread for thread in asked if thread.jev == thread.verdict]
+    lines = [
+        f"Outcome: {state.outcome}",
+        f"Branch: {state.branch}",
+        f"PR: {state.pr_url}",
+        f"Jev mode: {state.jev_mode}",
+        *section("Settled by Jev", [f"{where(t)}: {t.verdict}" for t in state.threads if t.decided_by == "jev"]),
+        *section("Skipped earlier", [f"{where(t)}: {t.draft}" for t in state.threads if t.decided_by == "earlier"]),
+        f"Jev agreed with you on {len(agreed)} of {len(asked)} threads",
+    ]
+    if state.outcome == "escalated":
+        lines += escalation_lines(state)
+    if state.outcome == "push_failed":
+        lines += [*section("Unpushed commits", state.unpushed.splitlines()), "Push error:", state.push_error]
+    not_resolved = [f"{where(t)}: {t.resolve_error}" for t in state.threads if t.resolve_error]
+    if not_resolved:
+        lines += section("Pushed but not resolved", not_resolved)
+    drafts = [f"{where(t)}: {t.draft}" for t in state.threads if t.draft and t.decided_by != "earlier"]
+    return "\n".join([*lines, *section("Drafted replies", drafts)])
+
+
+def section(title: str, items: list[str]) -> list[str]:
+    """A titled list that says so when it is empty."""
+    return [f"{title}:", *([f"- {item}" for item in items] or ["(none)"])]
+
+
+def escalation_lines(state: PrState) -> list[str]:
+    """The fixes accepted before the stuck thread, its problems, and the fixes after it."""
+    threads = fixes(state)
+    return [
+        *section("Accepted fixes, not pushed", [f"{where(t)}: {t.commit}" for t in threads[:state.task]]),
+        *section(f"Stuck on {where(threads[state.task])}", state.problems),
+        *section("Threads not started", [where(t) for t in threads[state.task + 1:]]),
+    ]
 
 
 # ---------- the thread judge's prompt (agents/thread-judge.md holds the general rules) ----------

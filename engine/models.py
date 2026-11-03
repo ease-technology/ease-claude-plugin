@@ -140,6 +140,7 @@ class PrState(State):
     attempt_start: str = ""            # commit where the current attempt started
     pushed: bool = False
     push_error: str = ""
+    unpushed: str = ""                 # git log --oneline pr_head..HEAD, when the push was rejected
 
 
 def state_to_json(state: State | TicketState) -> str:
