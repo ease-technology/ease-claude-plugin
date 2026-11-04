@@ -9,7 +9,7 @@ from engine.shell import (
     is_dirty, open_pr, run_checks, switch_to_branch,
 )
 from engine.workspace import (
-    EaseError, build_runs, load_config, load_project, new_state, project_and_mode, save_state, state_dir,
+    EaseError, build_runs, load_config, load_project, new_state, pr_runs, project_and_mode, save_state, state_dir,
 )
 
 PLAN_SHAPE = """```json
@@ -132,7 +132,8 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
         repos = list(dict.fromkeys(task.repo for task in state.tasks))  # no duplicates, in order
         runs = build_runs(ws)
         old_branches = {run.branch for run in runs}
-        busy = {run.branch: run for run in runs if run.step != "done" and run.run_id != state.run_id}
+        others = [run for run in runs if run.run_id != state.run_id] + pr_runs(ws)
+        busy = {run.branch: run for run in others if run.step != "done"}
         for repo in repos:
             path = project.repos[repo].path
             if not (Path(path) / ".git").exists():
@@ -140,7 +141,7 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
             if is_dirty(path):
                 raise EaseError(f"{path} has uncommitted changes. Commit or stash them, then approve again.")
             branch = current_branch(path)
-            if branch in busy:  # another run is building here
+            if branch in busy:  # another run is working here
                 other = busy[branch]
                 raise EaseError(
                     f"{path} is busy with run {other.run_id} ({other.ticket_title}). Approve again once that "
@@ -166,15 +167,45 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
 
 
 def reply_build(state: State, project: Project) -> dict:
-    """The worker's message is free text. Run the checks, then commit everything (even if they fail)."""
-    task, repo = current_task(state, project)
-    state.checks_ok, state.checks_output = run_checks(repo.path, repo.checks)
-    commit_all(repo.path, task.title)  # after the checks, so it has what they changed
+    """The worker's message is free text. Gate the work, then move on to the review."""
+    gate_build(state, project)
     state.step = "review"
     return {"ok": True}
 
 
+def gate_build(state: State, project: Project) -> None:
+    """Run the checks, then commit everything (even if they fail)."""
+    task, repo = current_task(state, project)
+    state.checks_ok, state.checks_output = run_checks(repo.path, repo.checks)
+    commit_all(repo.path, task.title)  # after the checks, so it has what they changed
+
+
 def reply_review(ws, state: State, project: Project, text: str) -> dict:
+    """Decide with the gate, then act on the decision."""
+    result = gate_review(ws, state, project, text)
+    final = result["decision"]
+    reviewed = state.task + 1
+
+    if final == "accept":
+        if reviewed < len(state.tasks):
+            state.task = reviewed
+            state.attempt = 1
+            state.problems = []
+            state.task_start = head(project.repos[state.tasks[reviewed].repo].path)
+            state.step = "build"
+        else:
+            finish(state, project)
+    elif final == "fix":
+        state.attempt += 1
+        state.step = "build"
+    else:  # escalate
+        state.step = "done"
+        state.outcome = "escalated"
+
+    return {"ok": True, "task": reviewed, **result}
+
+
+def gate_review(ws, state: State, project: Project, text: str) -> dict:
     """Decide with the code rule and ask Jev too. In live mode Jev's answer counts, inside guardrails."""
     report = parse_report(text)
     if report.get("verdict") not in ("pass", "fail"):
@@ -198,32 +229,11 @@ def reply_review(ws, state: State, project: Project, text: str) -> dict:
         final = live_rule(code, jev_choice, jev_confidence, state.attempt, state.problems)
         if final == "escalate" and code != "escalate":  # the summary would have no reason otherwise
             state.problems.insert(0, f"Jev chose to escalate (confidence {jev_confidence:.2f}).")
-    reviewed = state.task + 1
     state.log.append(Decision(
-        task=reviewed, attempt=state.attempt, checks_ok=state.checks_ok, review_ok=review_ok,
+        task=state.task + 1, attempt=state.attempt, checks_ok=state.checks_ok, review_ok=review_ok,
         code=code, final=final, jev=jev_choice, jev_confidence=jev_confidence,
     ))
-
-    if final == "accept":
-        if reviewed < len(state.tasks):
-            state.task = reviewed
-            state.attempt = 1
-            state.problems = []
-            state.task_start = head(project.repos[state.tasks[reviewed].repo].path)
-            state.step = "build"
-        else:
-            finish(state, project)
-    elif final == "fix":
-        state.attempt += 1
-        state.step = "build"
-    else:  # escalate
-        state.step = "done"
-        state.outcome = "escalated"
-
-    return {
-        "ok": True, "task": reviewed, "decision": final, "code": code,
-        "jev": jev_choice, "jev_confidence": jev_confidence,
-    }
+    return {"decision": final, "code": code, "jev": jev_choice, "jev_confidence": jev_confidence}
 
 
 def code_rule(checks_ok: bool, review_ok: bool, attempt: int) -> str:
@@ -266,12 +276,26 @@ def finish(state: State, project: Project) -> None:
     state.outcome = "done"
 
 
+class BadReportJson(EaseError, ValueError):
+    """A report's ```json block isn't valid JSON. It stays a ValueError, so a caller can word it for its own report."""
+
+
 def parse_report(text: str) -> dict:
-    """Read the JSON from the last ```json block of an agent's message."""
-    parts = text.split("```json")
-    if len(parts) < 2:
+    """Read the JSON from the last real ```json block of an agent's message: one whose opening and closing fences each
+    stand on their own line. Fence text anywhere else, like in a JSON string or in prose, is only text."""
+    lines = text.split("\n")
+    block = opening = None
+    for number, line in enumerate(lines):
+        if line.strip() == "```json":
+            opening = number
+        elif line.strip() == "```" and opening is not None:
+            block, opening = lines[opening + 1:number], None
+    if block is None:
         raise EaseError("report must end with a ```json block")
-    return json.loads(parts[-1].split("```")[0])
+    try:
+        return json.loads("\n".join(block))
+    except ValueError as error:
+        raise BadReportJson(f"report's ```json block is not valid JSON: {error}") from None
 
 
 def current_task(state: State, project: Project) -> tuple[Task, Repo]:

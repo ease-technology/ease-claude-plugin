@@ -212,6 +212,15 @@ def test_rounds_run_out(ws):
         send(ws, round_of(q("One more?")))
 
 
+@pytest.mark.parametrize("wrap", ["{}", "  {}\n", "My answers.\n```json\n{}\n```"])
+def test_an_answer_may_mention_a_code_fence(wrap):
+    answers = {"A ```json question?": "the ```json block (Recommended)"}
+
+    text = wrap.format(json.dumps({"answers": answers}))
+
+    assert ticket.read_answers(text) == {"A ```json question?": "the ```json block"}
+
+
 def test_every_open_question_needs_an_answer(ws):
     ticket.start(ws, None, "Improve the sync")
     send(ws, round_of(q("First?"), q("Second?")))

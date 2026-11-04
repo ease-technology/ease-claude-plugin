@@ -215,9 +215,10 @@ def reply_answers(state: TicketState, text: str) -> dict:
 
 
 def read_answers(text: str) -> dict[str, str]:
-    """{"answers": {question: answer}} -> {question: answer}, without AskUserQuestion's " (Recommended)"."""
+    """{"answers": {question: answer}} -> {question: answer}, without AskUserQuestion's " (Recommended)". The JSON may be
+    the whole text or in a ```json block. Plain JSON is read as it is, so an answer may mention a code fence."""
     try:
-        data = parse_report(text) if "```json" in text else json.loads(text)
+        data = json.loads(text) if text.lstrip().startswith("{") else parse_report(text)
         answers = data["answers"].items()
     except (EaseError, ValueError, KeyError, TypeError, AttributeError):
         raise EaseError('answers must be JSON like {"answers": {"<question>": "<answer>"}}') from None

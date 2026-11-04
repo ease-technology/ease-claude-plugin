@@ -1,8 +1,8 @@
 import json
 
 from engine import jev
-from engine.models import Decision, Question, Task
-from engine.workspace import new_state, new_ticket_state
+from engine.models import Decision, Question, Task, Thread
+from engine.workspace import new_pr_state, new_state, new_ticket_state
 
 
 def make_state():
@@ -116,3 +116,83 @@ def test_judge_questions_asks_once_and_never_shows_the_recommendation(monkeypatc
     # One question was asked before, so the first new one turns by 1 and the second by 2.
     assert list(sent["questions"]["q1"]["criteria"]) == ["No", "Later", "Yes"]
     assert list(sent["questions"]["q2"]["criteria"]) == ["Later", "Yes", "No"]
+
+
+def a_thread(thread_id, line=3):
+    """A thread the agent has already judged, with texts that are easy to spot in a request."""
+    return Thread(
+        thread_id, "a.py", line, False, [{"id": f"C{thread_id}", "author": "sam", "body": "Off by one."}],
+        code=f"{line}: x = y + 1", proposal="skip", skip_reason="SECRET-REASON", fix_note="SECRET-NOTE",
+    )
+
+
+def judge_threads(threads, key="key"):
+    state = new_pr_state("demo", "PR 7: Add a thing", "Open threads.", "b", "app", 7, "url", "abc", "juan", threads)
+    return jev.judge_threads(key, state, threads)
+
+
+def test_judge_threads_asks_once_and_turns_the_order_by_thread(monkeypatch):
+    calls = []
+    answers = {"t1": {"choice": "fix", "confidence": 0.8}, "t2": {"choice": "skip"}}
+    monkeypatch.setattr(jev, "post", fake_post(answers, calls))
+
+    assert judge_threads([a_thread("A"), a_thread("B"), a_thread("C")]) == [("fix", 0.8), ("skip", None), (None, None)]
+
+    assert len(calls) == 1
+    questions = calls[0]["questions"]
+    assert [q["type"] for q in questions.values()] == ["choice"] * 3
+    assert [list(q["criteria"]) for q in questions.values()] == [["fix", "skip"], ["skip", "fix"], ["fix", "skip"]]
+
+
+def test_judge_threads_sends_only_the_named_fields(monkeypatch):  # AC7
+    calls = []
+    monkeypatch.setattr(jev, "post", fake_post({}, calls))
+
+    judge_threads([a_thread("A", line=12)])
+
+    assert calls[0]["state"]["threads"] == {"t1": {
+        "path": "a.py", "line": 12, "outdated": False,
+        "comments": [{"id": "CA", "author": "sam", "body": "Off by one."}], "code": "12: x = y + 1",
+    }}
+    sent = json.dumps(calls[0])
+    assert "SECRET" not in sent and "proposal" not in sent and "recommend" not in sent.lower()
+
+
+def test_judge_threads_adds_what_an_earlier_run_decided_and_no_proposal(monkeypatch):  # AC24
+    calls = []
+    monkeypatch.setattr(jev, "post", fake_post({}, calls))
+    again = a_thread("A")
+    again.earlier_verdict, again.earlier_reason = "skip", "It reads fine."
+
+    judge_threads([again, a_thread("B")])
+
+    first, second = calls[0]["state"]["threads"].values()
+    assert (first["earlier_verdict"], first["earlier_reason"]) == ("skip", "It reads fine.")
+    assert "earlier_verdict" not in second and "earlier_reason" not in second
+    assert "`earlier_verdict`" in calls[0]["questions"]["t1"]["instructions"]
+    assert "`earlier_verdict`" not in calls[0]["questions"]["t2"]["instructions"]
+    sent = json.dumps(calls[0])
+    assert "SECRET" not in sent and "proposal" not in sent and "recommend" not in sent.lower()
+
+
+def test_judge_threads_counts_any_other_choice_as_no_pick(monkeypatch):
+    answers = {
+        "t1": {"choice": "maybe", "confidence": 0.9},
+        "t2": {"choice": ["fix"], "confidence": 0.9},
+        "t3": {"confidence": 0.9},
+        "t4": {"choice": "fix", "confidence": "high"},
+    }
+    monkeypatch.setattr(jev, "post", fake_post(answers, []))
+
+    threads = [a_thread(name) for name in "ABCD"]
+    assert judge_threads(threads) == [(None, None), (None, None), (None, None), ("fix", None)]
+
+
+def test_judge_threads_with_no_key_says_so_and_calls_nothing(monkeypatch, capsys):  # AC11
+    calls = []
+    monkeypatch.setattr(jev, "post", fake_post({}, calls))
+
+    assert judge_threads([a_thread("A"), a_thread("B")], key=None) == [(None, None), (None, None)]
+
+    assert calls == []
+    assert capsys.readouterr().err.startswith("jev: ")

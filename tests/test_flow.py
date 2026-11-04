@@ -7,7 +7,7 @@ import pytest
 from conftest import git_repo, write_project
 from engine import flow, jev
 from engine.models import Verdict
-from engine.workspace import CONTEXT_DIR, EaseError, build_runs, load_state, new_state, save_state
+from engine.workspace import CONTEXT_DIR, EaseError, build_runs, load_state, new_pr_state, new_state, save_state
 
 PASS = '```json\n{"verdict": "pass", "findings": []}\n```'
 
@@ -189,6 +189,43 @@ def test_empty_reply_is_an_error(ws):
     assert newest(ws).step == "approve"
 
 
+FINDING = {"verdict": "fail", "findings": ["app.py splits on ```json, then on ```, so this report would break."]}
+BLOCK = "```json\n" + json.dumps(FINDING) + "\n```"
+
+
+@pytest.mark.parametrize("text", [
+    BLOCK,
+    "Reviewed.\n" + BLOCK + "\nThat's all.\n",
+    "```json\n" + json.dumps(FINDING, indent=2) + "\n```",
+    "  ```json  \r\n" + json.dumps(FINDING) + "\r\n  ```  \r\n",
+    "Prose that mentions ```json and ``` before the block.\n" + BLOCK,
+    "Prose that mentions ```json before the block, and never closes it.\n" + BLOCK,
+    "A block that never closes:\n```json\n{not json\n" + BLOCK,
+    "Other code:\n```\nprint()\n```\n" + BLOCK + "\n```\n",
+    '```json\n{"verdict": "pass"}\n```\nThat was wrong, so:\n' + BLOCK,
+])
+def test_a_report_reads_only_a_real_block_and_the_last_one(text):
+    assert flow.parse_report(text) == FINDING
+
+
+@pytest.mark.parametrize("text", [
+    "",
+    "Prose that mentions ```json and ``` only.",
+    'Inline ```json {"verdict": "pass"}``` is not a block.',
+    '```json\n{"verdict": "pass"}',  # it never closes
+    '```json\n{"verdict": "pass"}```',  # the closing fence isn't on its own line
+    '```json {"verdict": "pass"}\n```',  # nor is the opening one
+])
+def test_a_report_with_no_real_block_is_refused(text):
+    with pytest.raises(EaseError, match="report must end with a ```json block"):
+        flow.parse_report(text)
+
+
+def test_a_report_with_invalid_json_gets_an_error_to_show():
+    with pytest.raises(EaseError, match="not valid JSON"):
+        flow.parse_report("```json\n{not json\n```")
+
+
 def test_bad_planner_report_leaves_state_unchanged(ws):
     flow.start(ws, None, "Add a thing")
     before = newest(ws)
@@ -293,6 +330,33 @@ def test_a_repo_another_run_is_building_in_is_busy(ws):
         send(ws, "approve")
     assert newest(ws).step == "approve"
     assert branch_of(ws / "app") == "add-a-thing"  # the first run keeps its branch
+
+
+def pr_run_on_main(ws, step):
+    """Save a PR comments run on the branch `app` has checked out, and return its id."""
+    state = new_pr_state("demo", "The PR", "About the PR", "main", "app", 7, "https://pr/7", "abc", "juan", [])
+    state.step = step
+    save_state(ws, state)
+    return state.run_id
+
+
+def test_an_open_pr_comments_run_on_the_branch_blocks_approve(ws):  # AC4
+    pr_run = pr_run_on_main(ws, "judge")
+    start_run(ws)
+
+    with pytest.raises(EaseError, match=f"is busy with run {pr_run}"):
+        send(ws, "approve")
+    assert newest(ws).step == "approve"
+    assert branch_of(ws / "app") == "main"
+
+
+def test_a_finished_pr_comments_run_on_the_branch_blocks_nothing(ws):
+    pr_run_on_main(ws, "done")
+    start_run(ws)
+
+    send(ws, "approve")
+    assert newest(ws).step == "build"
+    assert branch_of(ws / "app") == "add-a-thing"
 
 
 def test_reviewer_fail_needs_a_finding(ws):
