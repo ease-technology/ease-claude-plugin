@@ -75,6 +75,12 @@ When a session's context passes about 40% of the window, run `/ease:handoff`, op
 
 Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.gitignore`, next to `.ease-context/runs/` and `.ease-context/ticket-runs/`.
 
+## TLDR
+
+Run `/ease:tldr` to rewrite Claude's most recent reply as a shorter one in the chat. The original stays in the conversation. Every decision and question is kept, warnings and exact error text stay word for word, and nothing is added.
+
+The command takes no arguments and has no length limit. It uses no tools, runs only when you type it, and leaves later replies unchanged. When there is no earlier reply, it answers in one line that there is nothing to condense. When the reply cannot be shortened, it answers in one line that it is already short.
+
 ## Change the plugin
 
 Try local changes without installing: `claude --plugin-dir <path to ease-claude-plugin>`. To release them, bump `version` in `.claude-plugin/plugin.json` and push. Installed copies only update when the version changes.
