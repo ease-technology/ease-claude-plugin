@@ -1,21 +1,19 @@
 ---
 name: tldr
-description: Condenses Claude's last reply, or what the session said about the topics named after the command, into a shorter version that keeps decisions, questions, warnings and exact error text. User-invoked only, as /ease:tldr.
-argument-hint: "[topics to condense from the session]"
+description: Gives the reader what they need from Claude's last reply, or answers a question about the session, in something read in under a minute. User-invoked only, as /ease:tldr.
+argument-hint: "[a question, or topics to condense from the session]"
 disable-model-invocation: true
 ---
 
 # ease tldr
 
-With nothing typed after the command, post a shorter version of the last reply, which is Claude's most recent message in the conversation before this command.
+The reader wants what they need from the conversation, read in under a minute. Post that and nothing else. The shape follows what was typed after the command.
 
-With text typed after the command, that text names the topics to condense. Post a shorter version of what the conversation says about them, from anywhere in the session, and leave out everything else. The text sets the focus and not the length.
-
-- **No earlier reply:** with no text, when there is no earlier reply, including one no longer available after compaction, reply in one line that there is nothing to condense and post nothing else.
-- **Topic not found:** when the conversation still available says nothing about a named topic, say so in one line for that topic.
-- **Already short:** with no text, when the reply cannot be made shorter while keeping everything the keep rule requires, reply in one line that it is already short and do not repeat it. With text, when what was said about a topic cannot be made shorter, post it as it is.
-- **Keep:** every decision and every question to the user in what is being condensed stays in the short version, and every warning and exact error text stays word for word.
-- **Add nothing:** the short version states no fact, opinion or suggestion that the conversation does not contain, so it adds no advice, follow-up offer or commentary.
-- **Output:** otherwise post only the short version, with fewer words than what it condenses. There is no fixed length limit, since how short it gets depends on what was said.
+- **Nothing typed:** the gist of the last reply, which is Claude's most recent message before this command, in at most 3 bullets. Anything the user has to do or decide always makes it in. Drop the rest.
+- **A question** (yes or no, "is X done?", "what's next?"): answer it in the first word or sentence, from anywhere in the session. Anything not finished, still unconfirmed, or still waiting on the user makes "everything is fine" false, so the answer is "No" or "Not yet", never "Yes", and those things are named after it. Name nothing that leaves the answer unchanged. When nothing is left, the answer alone is the reply, even if it is one word.
+- **Topics:** the same at most 3 bullets for each topic, from anywhere in the session.
+- **Exact text:** a warning or error that is included is quoted word for word. Include it only when it matters for what was asked.
+- **Add nothing:** state no fact, opinion or suggestion the conversation does not contain, so no advice, follow-up offer or commentary.
+- **Nothing to work from:** with nothing typed and no earlier reply, including one lost to compaction, reply in one line that there is nothing to condense. When the conversation says nothing about a question or a topic, say so in one line for it. With nothing typed, when the last reply is already this short, reply in one line that it is already short and do not repeat it.
 - **No tools:** make no tool calls. Read and write no files, and run no commands, engine steps or Jev calls.
 - **This message only:** these rules apply to this one message. Write later replies as if the command had never run, with no change of style or length.
