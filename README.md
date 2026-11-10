@@ -77,7 +77,7 @@ Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.git
 
 ## TLDR
 
-`/ease:tldr` gives you what you need from the conversation, in something you can read in under a minute. Alone, it gives the gist of Claude's last reply in at most 3 bullets, always including what you have to do or decide. Followed by a question, such as `/ease:tldr everything ok?`, it answers first ("Yes", "No", "Not yet") and then names only what makes the answer true or false, including tasks still waiting on you. Followed by topics, such as `/ease:tldr x, y and z`, it gives at most 3 bullets for each. The original stays in the conversation. A warning or error it includes is quoted word for word, and nothing is added.
+`/ease:tldr` gives you what you need from the conversation, in something you can read in under a minute. Alone, it gives the gist of Claude's last reply in at most 3 bullets, always including what you have to do or decide. Followed by a question, such as `/ease:tldr everything ok?`, it answers first ("Yes", "No", "Not yet"). Anything unfinished, unconfirmed or waiting on you makes the answer "Not yet" and is named after it, and nothing else is. Followed by topics, such as `/ease:tldr x, y and z`, it gives at most 3 bullets for each. The original stays in the conversation. A warning or error it includes is quoted word for word, and nothing is added.
 
 It uses no tools, runs only when you type it, and leaves later replies unchanged. When there is no earlier reply, it answers in one line that there is nothing to condense. When the last reply is already that short, it answers in one line that it is already short. When the session says nothing about a question or topic you gave, it says so in one line.
 
