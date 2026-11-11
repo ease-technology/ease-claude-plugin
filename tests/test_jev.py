@@ -111,7 +111,7 @@ def test_judge_questions_asks_once_and_never_shows_the_recommendation(monkeypatc
     sent = calls[0]
     assert sent["state"]["decisions"] == [{"question": "Old?", "answer": "B"}]
     assert "First?" in sent["questions"]["q1"]["instructions"]
-    assert "the code shows x" in sent["questions"]["q1"]["instructions"]
+    assert "What the code and research show: the code shows x" in sent["questions"]["q1"]["instructions"]
     assert "recommend" not in json.dumps(sent).lower()
     # One question was asked before, so the first new one turns by 1 and the second by 2.
     assert list(sent["questions"]["q1"]["criteria"]) == ["No", "Later", "Yes"]

@@ -137,7 +137,7 @@ def judge_questions(
             "type": "choice",
             "instructions": (
                 f"For the `idea`, given the `decisions` so far: {q.question}\n\n"
-                f"What the code shows: {q.context}"
+                f"What the code and research show: {q.context}"
             ),
             "criteria": {label: q.options[label] for label in order},
         }

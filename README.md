@@ -35,7 +35,7 @@ Each session drives its own run by its run id, so several sessions can work at o
 
 ## Tickets
 
-To shape an idea before building it, say so in plain words, for example "I want to improve the component sync in ease studio", or run `/ease:ticket <idea>`. An interviewer agent reads the code and asks you up to 4 questions at a time, each with a recommended answer, until nothing important is left open (5 rounds at most). Then it writes a one-page ticket to `.ease-context/projects/<name>/tickets/<slug>.md`. The ticket opens with a job story and has numbered acceptance criteria, and you build it with `/ease:build <that path>`.
+To shape an idea before building it, say so in plain words, for example "I want to improve the component sync in ease studio", or run `/ease:ticket <idea>`. An interviewer agent reads the code, looks up facts and how other products solve the same problem on the web, and asks you only what research can't answer: up to 4 questions at a time, each with a recommended answer, until nothing important is left open (5 rounds at most). Then it writes a one-page ticket to `.ease-context/projects/<name>/tickets/<slug>.md`. The ticket opens with a job story and has numbered acceptance criteria, and you build it with `/ease:build <that path>`.
 
 Jev answers every question too, without seeing the recommendation, and scores whether the ticket is ready to build by comparing it with the interview.
 
