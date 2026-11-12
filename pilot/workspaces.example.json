@@ -1,0 +1,18 @@
+{
+  "workspaces": [
+    {"name": "ease", "path": "~/ease", "config_dir": "~/.claude-ease"},
+    {"name": "souk", "path": "~/join-souk", "config_dir": "~/.claude-souk"},
+    {"name": "proper", "path": "~/dev", "config_dir": "~/.claude-proper"}
+  ],
+  "shared_branches": {
+    "~/join-souk/souk": ["dev", "main"],
+    "~/dev/asado": ["main"],
+    "~/dev/choripan": ["main"],
+    "~/dev/portal": ["main"],
+    "~/dev/copilot": ["main"],
+    "~/dev/admin-tools": ["main"],
+    "~/dev/contador": ["main"]
+  },
+  "prod_markers": ["asado-prod", "proper-base:us-west1:asado-prod"],
+  "blocked_tools": ["mcp__*slack*__*send*", "mcp__*slack*__*post*", "mcp__*gmail*__*send*", "mcp__*email*__*send*"]
+}
