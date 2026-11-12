@@ -123,6 +123,16 @@ The key is a secret, so add `.ease-context/config.json` to your workspace's `.gi
 
 Jev scores how fully the plan covers the ticket, and after every review it says what it would do. The answer is logged in `state.json` under `log` next to the code rule's decision, so you can compare them. Each plan you answer goes under `plan_log`, with Jev's score, its confidence and your answer (approve, change or cancel). Ticket runs do the same for drafts under `draft_log`, and each question keeps Jev's pick next to your answer. This shadow data is what live mode's thresholds can later be set from. A run keeps the `jev_mode` it started with.
 
+When a session answers in your place, it replies with `reply <run_id> --by autopilot` (in build, `ticket` and `pr-comments`). The answer is recorded as `decided_by: "autopilot"` on questions, threads and plan and draft verdicts, and the summaries name it. Jev's agreement with you counts only your own answers.
+
+`ease-engine jev-opinion` asks Jev for a second opinion on any choice. It reads a JSON object on stdin:
+
+```json
+{"question": "Which fix?", "context": "...", "options": {"retry": "Retry the call", "skip": "Skip the step"}, "case": "..."}
+```
+
+`case` is optional, and `options` needs two or more labels. Jev favors the first option slightly, so the same question is asked twice in one call, with the options in opposite orders. The output is `{"picks": [...], "agree": label|null}`: one pick per question, each `{"choice", "confidence"}`, and `agree` is the label when both picks are the same. With no key, or when Jev fails, the picks are null and a `jev: ...` line goes to stderr. Malformed input gives `{"error": ...}`. It is a second opinion only: it never decides anything.
+
 To judge a task, Jev gets the ticket, the task, its diff (the first 20,000 characters), the checks and the review. So your code goes to TypeSafe's API.
 
 In shadow mode Jev only watches: the code rule decides. In live mode Jev decides, but three guardrails always win:
@@ -140,7 +150,7 @@ In shadow mode Jev only watches: the code rule decides. In live mode Jev decides
 - `engine/flow.py` holds the steps, the code rule and the live rule.
 - `engine/ticket.py` holds the ticket flow: the interview, the question rule and the ready rule.
 - `engine/pr_comments.py` holds the PR comments flow: the refusals, the remembered skips, the fix tasks, the push and the summary.
-- `engine/cli.py` is the `start`, `runs`, `next <run_id>` and `reply <run_id>` commands, for build and, after `ticket`, for tickets, and after `pr-comments`, for PR comments runs. `pr-comments start` also takes `--repo <name>`.
+- `engine/cli.py` is the `start`, `runs`, `next <run_id>` and `reply <run_id> [--by autopilot]` commands, for build and, after `ticket`, for tickets, and after `pr-comments`, for PR comments runs. `pr-comments start` also takes `--repo <name>`. `jev-opinion` asks Jev for a second opinion and never decides.
 
 Run the tests from a fresh clone:
 
