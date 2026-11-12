@@ -311,7 +311,7 @@ def comment_lines(thread: Thread) -> list[str]:
 
 # ---------- reply ----------
 
-def reply(ws, state: PrState, text: str) -> dict:
+def reply(ws, state: PrState, text: str, by: str = "you") -> dict:
     """Handle what came back (an agent's report or the user's words), then save."""
     if state.step == "done":
         raise EaseError("this run is done")

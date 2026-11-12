@@ -11,8 +11,9 @@ USAGE = (
     "usage: ease-engine [ticket | pr-comments] start [project] | start [project] --branch <name>"
     " | pr-comments start [project] --repo <name>"
     " | [ticket | pr-comments] runs | [ticket | pr-comments] next <run_id>"
-    " | [ticket | pr-comments] reply <run_id>  (text on stdin)"
+    " | [ticket | pr-comments] reply <run_id> [--by autopilot]  (text on stdin)"
 )
+DECIDERS = ("you", "autopilot")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,8 +43,11 @@ def command(ws, args: list[str], steps, load) -> dict:
         return steps.open_runs(ws)
     if len(args) == 2 and args[0] == "next":
         return steps.next_action(ws, load(ws, args[1]))
-    if len(args) == 2 and args[0] == "reply":
-        return steps.reply(ws, load(ws, args[1]), sys.stdin.read())
+    if args[:1] == ["reply"] and (len(args) == 2 or len(args) == 4 and args[2] == "--by"):
+        by = args[3] if len(args) == 4 else "you"
+        if by not in DECIDERS:  # before loading or reading anything, so nothing is saved
+            raise EaseError(f"--by must be one of: {', '.join(DECIDERS)}")
+        return steps.reply(ws, load(ws, args[1]), sys.stdin.read(), by)
     if len(args) in (1, 2) and args[0] == "start":
         return steps.start(ws, args[1] if len(args) == 2 else None, sys.stdin.read())
     if steps is flow and len(args) in (3, 4) and args[0] == "start" and args[-2] == "--branch":  # only builds branch

@@ -114,7 +114,7 @@ def ask_approval(state: TicketState) -> dict:
 
 # ---------- reply ----------
 
-def reply(ws, state: TicketState, text: str) -> dict:
+def reply(ws, state: TicketState, text: str, by: str = "you") -> dict:
     """Handle what came back (the interviewer's message or your answers), then save."""
     if state.step == "done":
         raise EaseError("this ticket run is done")

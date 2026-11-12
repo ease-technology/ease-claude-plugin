@@ -43,6 +43,38 @@ def test_start_next_reply(ws, monkeypatch, capsys):
     ]}
 
 
+def planned_run(monkeypatch, capsys):
+    """Start a build run and reply with the planner's report. It stops at the approve step."""
+    monkeypatch.setattr("sys.stdin", io.StringIO("Add a thing\n"))
+    assert main(["start", "demo"]) == 0
+    run_id = output(capsys)["run_id"]
+    monkeypatch.setattr("sys.stdin", io.StringIO(REPORT))
+    assert main(["reply", run_id]) == 0
+    assert output(capsys) == {"ok": True}
+    return run_id
+
+
+def test_reply_records_who_decided(ws, monkeypatch, capsys):  # AC2
+    monkeypatch.chdir(ws)
+    for args, decider in ([], "you"), (["--by", "autopilot"], "autopilot"):
+        run_id = planned_run(monkeypatch, capsys)
+        monkeypatch.setattr("sys.stdin", io.StringIO("cancel"))
+        assert main(["reply", run_id, *args]) == 0
+        assert output(capsys) == {"ok": True}
+        assert load_state(ws, run_id).plan_log[-1].decided_by == decider
+
+
+def test_an_unknown_decider_changes_nothing(ws, monkeypatch, capsys):  # AC8
+    monkeypatch.chdir(ws)
+    run_id = planned_run(monkeypatch, capsys)
+    file = ws / CONTEXT_DIR / "runs" / run_id / "state.json"
+    before = file.read_text()
+    monkeypatch.setattr("sys.stdin", io.StringIO("approve"))
+    assert main(["reply", run_id, "--by", "someone"]) == 1
+    assert output(capsys) == {"error": "--by must be one of: you, autopilot"}
+    assert file.read_text() == before
+
+
 def test_start_with_a_branch(ws, monkeypatch, capsys):
     monkeypatch.chdir(ws)
     monkeypatch.setattr("sys.stdin", io.StringIO("Add a thing\n"))

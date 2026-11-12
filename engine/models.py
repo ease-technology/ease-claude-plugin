@@ -40,6 +40,7 @@ class Verdict:           # Jev's score of a plan or a ticket draft, and your ans
     score: float | None
     confidence: float | None
     answer: str          # approve | change | cancel
+    decided_by: str = ""  # you | autopilot; empty in runs from before
 
 
 @dataclass
