@@ -119,7 +119,7 @@ class Thread:            # one open review thread on a PR, and what happened to 
     verdict: str = ""                  # fix | skip, empty until decided
     reason: str = ""                   # why it was skipped
     instruction: str = ""              # what to fix
-    decided_by: str = ""               # you | jev | earlier
+    decided_by: str = ""               # you | jev | autopilot | earlier
     earlier_verdict: str = ""          # the verdict an earlier run gave this thread
     earlier_reason: str = ""
     new_comments: list[str] = field(default_factory=list)  # ids of the comments that earlier run's skip didn't see

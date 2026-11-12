@@ -2191,6 +2191,8 @@ def test_a_run_with_no_threads_still_lists_everything(ws, checkout, scripted_gh)
         "Jev mode: shadow",
         "Settled by Jev:",
         "(none)",
+        "Decided by autopilot:",
+        "(none)",
         "Skipped earlier:",
         "(none)",
         "Jev agreed with you on 0 of 0 threads",
@@ -2216,6 +2218,8 @@ def test_an_all_skip_run_has_a_draft_for_each_and_no_commit(ws, checkout, script
         f"PR: {URL}",
         "Jev mode: shadow",
         "Settled by Jev:",
+        "(none)",
+        "Decided by autopilot:",
         "(none)",
         "Skipped earlier:",
         "(none)",
@@ -2248,6 +2252,8 @@ def test_a_pushed_run_drafts_the_full_sha_of_each_fixs_last_commit(ws, checkout,
         "Jev mode: shadow",
         "Settled by Jev:",
         "(none)",
+        "Decided by autopilot:",
+        "(none)",
         "Skipped earlier:",
         "(none)",
         "Jev agreed with you on 0 of 0 threads",
@@ -2266,7 +2272,7 @@ def test_the_summary_lists_the_threads_jev_settled(ws, checkout, monkeypatch):  
 
     text = summary_of(saved)
     assert "Jev mode: live\n" in text
-    assert "Settled by Jev:\n- a.py line 3: skip\nSkipped earlier:" in text
+    assert "Settled by Jev:\n- a.py line 3: skip\nDecided by autopilot:\n(none)\nSkipped earlier:" in text
     assert "Jev agreed with you on 1 of 1 threads\n" in text
     assert text.endswith(
         "Drafted replies:\n"
@@ -2295,6 +2301,25 @@ def test_only_your_threads_with_a_jev_pick_count_towards_the_agreement():  # AC1
     assert "Jev agreed with you on 2 of 3 threads" in summary_of(state)
 
 
+def test_autopilots_answers_are_its_own_and_left_out_of_the_agreement(ws, monkeypatch, capsys):  # AC4
+    monkeypatch.chdir(ws)
+    state = at_answer(ws, judged("T1", "skip", jev_pick="skip", line=1), judged("T2", "fix", jev_pick="skip", line=2))
+    answers = json.dumps({"answers": {
+        pr_comments.question_text(1, state.threads[0]): "Skip",
+        pr_comments.question_text(2, state.threads[1]): "Skip not needed",
+    }})
+
+    assert cli(capsys, monkeypatch, ["pr-comments", "reply", state.run_id, "--by", "autopilot"], answers) == (0, {
+        "ok": True, "rejected": [],
+    })
+
+    saved = load_pr_state(ws, state.run_id)
+    assert [t.decided_by for t in saved.threads] == ["autopilot", "autopilot"]
+    text = summary_of(saved)
+    assert "Decided by autopilot:\n- a.py line 1: skip\n- a.py line 2: skip\nSkipped earlier:" in text
+    assert "Jev agreed with you on 0 of 0 threads\n" in text
+
+
 def test_an_escalation_lists_what_was_accepted_stuck_not_started_and_drafted(ws, checkout, scripted_gh):  # AC15
     state = fixing(ws, "Fix", "Skip not needed", "Fix", "Fix")
 
@@ -2310,6 +2335,8 @@ def test_an_escalation_lists_what_was_accepted_stuck_not_started_and_drafted(ws,
         f"PR: {URL}",
         "Jev mode: shadow",
         "Settled by Jev:",
+        "(none)",
+        "Decided by autopilot:",
         "(none)",
         "Skipped earlier:",
         "(none)",
