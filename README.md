@@ -81,6 +81,18 @@ Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.git
 
 It uses no tools, runs only when you type it, and leaves later replies unchanged. When there is no earlier reply, it answers in one line that there is nothing to condense. When the last reply is already that short, it answers in one line that it is already short. When the session says nothing about a question or topic you gave, it says so in one line.
 
+## Autopilot
+
+To hand a session a goal and walk away, run `/ease:autopilot <order>`, or say so in plain words, for example "take control, don't ask me, use Jev as the second opinion". The session works in your place through the ease skills and decides every question they would ask you.
+
+It decides by the question rule: first from the record (the order, the ticket, `context.md`, earlier decisions, the code), then by research. Then it asks Jev for a second opinion with `ease-engine jev-opinion`, without telling Jev its pick. When Jev disagrees, it reviews the decision and asks again with its case, up to 3 rounds. If Jev is still not convinced, an important decision waits for you and an unimportant one takes the option that is easier to undo. It answers the engine's questions with `reply <run_id> --by autopilot`.
+
+It never takes these actions alone: merging into a shared branch, writing to production, deploying or releasing, sending anything in your name, force pushes, deleting what it didn't create, spending money, touching credentials or permissions, and weakening a check or a test. Each one is logged as an ASK JUAN entry with the exact command or click.
+
+Every decision goes to `.ease-context/handoffs/<slug>-decisions.md`, numbered and append-only, with why, Jev's picks and how to undo it. A later autopilot session on the same order reads the file and goes on from it. When the order is done, or nothing more can go ahead without you, it runs `/ease:handoff` and ends with three lines: the order's status, the number of ASK JUAN entries, and the path to the decisions file.
+
+Jev never decides, and autopilot leaves `jev_mode` as it is.
+
 ## Change the plugin
 
 Try local changes without installing: `claude --plugin-dir <path to ease-claude-plugin>`. To release them, bump `version` in `.claude-plugin/plugin.json` and push. Installed copies only update when the version changes.
