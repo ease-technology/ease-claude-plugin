@@ -47,6 +47,8 @@ python3 "<skill base dir>/../../bin/ease-engine" ticket reply <run_id> <<'EASE_R
 EASE_REPLY
 ```
 
+Under /ease:autopilot, don't call AskUserQuestion. Decide each question by the autopilot question rule, log each decision, and reply with `ticket reply <run_id> --by autopilot`, with the same answers JSON.
+
 **done.** Show `summary` and stop.
 
 ## Rules
