@@ -81,7 +81,7 @@ class Question:          # one interview question, and how it was answered
     jev: str | None = None             # Jev's pick, one of the labels
     jev_confidence: float | None = None
     answer: str = ""                   # a label, or your own words
-    decided_by: str = ""               # you | jev
+    decided_by: str = ""               # you | jev | autopilot
 
 
 @dataclass
