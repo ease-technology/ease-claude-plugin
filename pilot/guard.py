@@ -5,6 +5,7 @@ Reads the hook JSON on stdin. A blocked call exits 2 with one `ASK JUAN:` line o
 anything else exits 0. Standard library only.
 """
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -192,6 +193,30 @@ class Guard:
         return None
 
 
+def use_approval(path, command):
+    """Spend a one-time approval: remove the exact command from the JSON list and say whether it was there."""
+    try:
+        with open(path) as file:
+            text = file.read()
+    except FileNotFoundError:
+        return False
+    approvals = json.loads(text) if text.strip() else []
+    if command not in approvals:
+        return False
+    approvals.remove(command)
+    with open(path, "w") as file:
+        json.dump(approvals, file)
+    return True
+
+
+def ask_juan(reason):
+    print(
+        f"ASK JUAN: {reason}. Log the exact action as an ASK JUAN entry in your decisions file and do not retry it.",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
@@ -202,7 +227,10 @@ def main():
     with open(options.config) as file:
         config = json.load(file)
     event = json.load(sys.stdin)
-    if event.get("tool_name") != "Bash":
+    tool = event.get("tool_name", "")
+    if tool != "Bash":
+        if any(fnmatch.fnmatchcase(tool, pattern) for pattern in config.get("blocked_tools", [])):
+            return ask_juan(f"{tool} is a blocked tool")
         return 0
     command = (event.get("tool_input") or {}).get("command", "")
     folder = event.get("cwd") or os.getcwd()
@@ -212,13 +240,9 @@ def main():
     except ValueError as error:
         print(f"guard: could not parse the command ({error}), letting it through", file=sys.stderr)
         return 0
-    if reason:
-        print(
-            f"ASK JUAN: {reason}. Log the exact action as an ASK JUAN entry in your decisions file and do not retry it.",
-            file=sys.stderr,
-        )
-        return 2
-    return 0
+    if not reason or (options.approvals and use_approval(options.approvals, command)):
+        return 0
+    return ask_juan(reason)
 
 
 if __name__ == "__main__":
