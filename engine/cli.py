@@ -4,14 +4,17 @@ Every outcome prints exactly one JSON object."""
 import json
 import sys
 
-from engine import flow, pr_comments, ticket
-from engine.workspace import EaseError, find_workspace, load_pr_state, load_state, load_ticket_state
+from engine import flow, jev, pr_comments, ticket
+from engine.workspace import (
+    EaseError, find_workspace, load_config, load_pr_state, load_state, load_ticket_state,
+)
 
 USAGE = (
     "usage: ease-engine [ticket | pr-comments] start [project] | start [project] --branch <name>"
     " | pr-comments start [project] --repo <name>"
     " | [ticket | pr-comments] runs | [ticket | pr-comments] next <run_id>"
     " | [ticket | pr-comments] reply <run_id> [--by autopilot]  (text on stdin)"
+    " | jev-opinion  (JSON on stdin)"
 )
 DECIDERS = ("you", "autopilot")
 
@@ -21,7 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     try:
         ws = find_workspace()
-        if args[:1] == ["ticket"]:
+        if args == ["jev-opinion"]:
+            result = jev.opinion(load_config(ws).get("typesafe_api_key"), **jev.read_opinion_request(sys.stdin.read()))
+        elif args[:1] == ["ticket"]:
             result = command(ws, args[1:], ticket, load_ticket_state)
         elif args[:1] == ["pr-comments"]:
             result = command(ws, args[1:], pr_comments, load_pr_state)

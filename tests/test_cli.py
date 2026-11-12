@@ -1,6 +1,7 @@
 import io
 import json
 
+from engine import jev
 from engine.cli import main
 from engine.workspace import CONTEXT_DIR, load_state
 from test_pr_comments import (
@@ -198,3 +199,47 @@ def test_a_stopped_pr_comments_run_continues_from_its_saved_step(ws, checkout, s
     assert resolves(scripted_gh) == ["T1", "T5"]
     subjects = git_out(ws / "origin.git", "log", "--format=%s", f"{pr_head}..{BRANCH}").splitlines()
     assert subjects == ["Fix a.py line 5", "Fix a.py line 1"]
+
+
+NO_PICKS = {"picks": [{"choice": None, "confidence": None}, {"choice": None, "confidence": None}], "agree": None}
+OPINION = {"question": "What now?", "context": "code", "options": {"keep": "leave it", "drop": "remove it"}}
+
+
+def test_jev_opinion_without_jev_prints_no_picks(ws, monkeypatch, capsys):  # AC7
+    monkeypatch.chdir(ws)
+
+    def broken(key, body):
+        raise TimeoutError("too slow")
+
+    monkeypatch.setattr(jev, "post", broken)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(OPINION)))
+    assert main(["jev-opinion"]) == 0  # no key in config.json
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == NO_PICKS
+    assert captured.err.startswith("jev:")
+
+    config = ws / CONTEXT_DIR / "config.json"
+    config.write_text(json.dumps({"typesafe_api_key": "key"}))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(OPINION)))
+    assert main(["jev-opinion"]) == 0  # a key, but Jev fails
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == NO_PICKS
+    assert captured.err == "jev: too slow\n"
+
+
+def test_jev_opinion_rejects_malformed_input(ws, monkeypatch, capsys):  # AC7
+    monkeypatch.chdir(ws)
+    bad = [
+        {"options": OPINION["options"]},  # no question
+        {"question": "What now?"},  # no options
+        {"question": "What now?", "options": {"keep": "leave it"}},  # one option
+        {**OPINION, "case": 3},
+        ["not", "an", "object"],
+    ]
+    for request in bad:
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
+        assert main(["jev-opinion"]) == 1
+        assert set(output(capsys)) == {"error"}
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    assert main(["jev-opinion"]) == 1
+    assert set(output(capsys)) == {"error"}
