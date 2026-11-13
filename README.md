@@ -108,7 +108,7 @@ The pilot and every worker run with a guard, a PreToolUse hook (`pilot/guard.py`
 - merging a pull request with `gh pr merge`
 - PR and issue comments and reviews (`gh pr comment`, `gh pr review`, `gh issue comment`)
 - `gh api` writes (POST, PATCH, PUT, DELETE) to comments, reviews or merges
-- `git merge` on, and `git push` to or from, a shared branch listed in `shared_branches` in `workspaces.json`
+- `git merge` on, and `git push` to or from, a shared branch: one named in its workspace's `shared_branches` list in `workspaces.json` (Souk and Proper: `dev`, `develop`, `main`, `master`), in any repo or worktree under that workspace's folder
 - force pushes
 - branch deletes: remote deletes with `git push`, and `git branch -D` of a branch the session did not create
 - production database clients (`psql`, `pg_dump`, `mysql`, `mongosh`, `cloud-sql-proxy`) with a `prod_markers` value in their arguments
