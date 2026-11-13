@@ -99,7 +99,7 @@ The pilot is one session that runs your orders across the ease, Souk and Proper 
 
 The pilot acts only on its own `pilot-*` sessions and the ones you handed over, and only reads the rest.
 
-The pilot wakes a background session with a message using `env -i … claude --bg --resume <full session id> "<message>"` and no other flags. With the calling session's Claude variables, any flag or a short id, the CLI starts a copy that never gets the message. The pilot's settings allow that one command and `claude stop`, so auto mode does not block them.
+The pilot wakes a background session with a message using `env -i HOME=… PATH=… USER=… LOGNAME=… claude --bg --resume <full session id> "<message>"` and no other flags. `USER` and `LOGNAME` must stay, or the session starts "Not logged in". With the calling session's Claude variables, any flag or a short id, the CLI starts a copy that never gets the message. The pilot's settings allow that one command and `claude stop`, so auto mode does not block them.
 
 Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN is one yes-or-no question, a notification is one line, and you say "more" to get the details.
 

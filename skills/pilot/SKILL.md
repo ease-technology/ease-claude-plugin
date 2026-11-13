@@ -106,10 +106,10 @@ When Juan says "give back <session>", remove its line from `orders.md`, log it, 
 The only way into a background session is to wake it with a message. If it is busy, run `claude stop <id>` first, because waking a running session starts a copy, and wait until `claude agents --json --all` lists it with no `pid`. Then run exactly:
 
 ```bash
-cd <cwd> && env -i HOME="$HOME" PATH="$PATH" CLAUDE_CONFIG_DIR=<dir> claude --bg --resume <sessionId> "<message>"
+cd <cwd> && env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<dir> claude --bg --resume <sessionId> "<message>"
 ```
 
-`<cwd>`, `<dir>` and `<sessionId>` are the session's own, and `<sessionId>` is the full id `claude agents --json` prints. Never add other flags. `env -i` drops the Claude variables your own session would pass on: with them, or with any flag, or with a short id, the CLI starts a copy under a new id and the copy never gets the message. The output must say `woke session <id>`. If it says `started a copy`, stop the copy, log it, and tell Juan in one line.
+`<cwd>`, `<dir>` and `<sessionId>` are the session's own, and `<sessionId>` is the full id `claude agents --json` prints. Never add other flags. `env -i` drops the Claude variables your own session would pass on, and `USER` and `LOGNAME` are kept because the login needs them; without them the session and Claude's background service start "Not logged in". With the Claude variables, or with any flag, or with a short id, the CLI starts a copy under a new id and the copy never gets the message. The output must say `woke session <id>`. If it says `started a copy`, stop the copy, log it, and tell Juan in one line.
 
 ## Talking to Juan
 
