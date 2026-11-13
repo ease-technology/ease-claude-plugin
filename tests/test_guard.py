@@ -12,11 +12,18 @@ GUARD = Path(__file__).resolve().parent.parent / "pilot" / "guard.py"
 
 @pytest.fixture
 def repo(tmp_path):
-    """A git repo on `main`, with `main` and `dev` listed as shared branches in the config."""
+    """A git repo at work/app on `main`, in a workspace at work/ whose shared branches are main, dev and develop."""
     path = tmp_path / "work" / "app"
     git_repo(path)
     config = {
-        "shared_branches": {str(path): ["main", "dev"]},
+        "workspaces": [
+            {
+                "name": "test",
+                "path": str(tmp_path / "work"),
+                "config_dir": str(tmp_path / "cfg"),
+                "shared_branches": ["main", "dev", "develop"],
+            }
+        ],
         "prod_markers": ["asado-prod", "prod-db.example.com"],
         "blocked_tools": ["mcp__slack__*"],
     }
@@ -131,6 +138,31 @@ def test_allows_push_and_merge_on_a_non_shared_branch(repo, command):
 @pytest.mark.parametrize("command", ["git branch -D ease/run-1-task", "git branch -df ease/run-1-task"])
 def test_allows_branch_delete_with_own_prefix(repo, command):
     result = guard(repo, command, own_prefix="ease/run-1")
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command, code",
+    [("git push origin HEAD:main", 2), ("git push origin main", 2), ("git push -u origin feature", 0)],
+)
+def test_worktree_outside_the_workspace_counts_as_its_main_repo(repo, tmp_path, command, code):
+    worktree = tmp_path / "elsewhere" / "app-feature"
+    subprocess.run(["git", "worktree", "add", "-b", "feature", str(worktree)], cwd=repo, check=True, capture_output=True)
+    result = guard(repo, command, cwd=worktree)
+    assert result.returncode == code, result.stderr
+
+
+def test_shared_branches_cover_every_repo_under_the_workspace(repo, tmp_path):
+    other = tmp_path / "work" / "other"
+    git_repo(other)
+    assert guard(repo, "git push origin develop").returncode == 2
+    assert guard(repo, "git push origin develop", cwd=other).returncode == 2
+
+
+def test_shared_branches_do_not_apply_outside_every_workspace(repo, tmp_path):
+    outside = tmp_path / "outside" / "x"
+    git_repo(outside)
+    result = guard(repo, "git push origin develop", cwd=outside)
     assert result.returncode == 0, result.stderr
 
 

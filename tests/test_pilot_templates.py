@@ -13,7 +13,14 @@ def test_workspaces_example_lists_the_three_workspaces_and_config_keys():
         ("souk", "~/join-souk", "~/.claude-souk"),
         ("proper", "~/dev", "~/.claude-proper"),
     ]
-    assert config["shared_branches"] and config["prod_markers"] and config["blocked_tools"]
+    shared = ["dev", "develop", "main", "master"]
+    assert {w["name"]: w["shared_branches"] for w in config["workspaces"]} == {
+        "ease": [],
+        "souk": shared,
+        "proper": shared,
+    }
+    assert "shared_branches" not in config
+    assert config["prod_markers"] and config["blocked_tools"]
 
 
 @pytest.mark.parametrize("name, approvals", [("worker", False), ("pilot", True)])

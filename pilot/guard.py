@@ -73,16 +73,23 @@ def git_output(folder, *args):
 
 class Guard:
     def __init__(self, config, own_prefix):
-        self.shared = {
-            os.path.realpath(os.path.expanduser(repo)): set(branches)
-            for repo, branches in config.get("shared_branches", {}).items()
-        }
+        self.workspaces = [
+            (os.path.realpath(os.path.expanduser(workspace["path"])), set(workspace.get("shared_branches", [])))
+            for workspace in config["workspaces"]
+        ]
         self.prod_markers = [marker for marker in config.get("prod_markers", []) if marker]
         self.own_prefix = own_prefix
 
     def shared_branches(self, folder):
-        root = git_output(folder, "rev-parse", "--show-toplevel")
-        return self.shared.get(os.path.realpath(root), set()) if root else set()
+        """The shared branches of the workspace holding this folder's main repo; a worktree counts as its main repo."""
+        common_dir = git_output(folder, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        if common_dir is None:
+            return set()
+        main_repo = os.path.realpath(os.path.dirname(common_dir))
+        for path, branches in self.workspaces:
+            if main_repo == path or main_repo.startswith(path + os.sep):
+                return branches
+        return set()
 
     def current_branch(self, folder):
         return git_output(folder, "rev-parse", "--abbrev-ref", "HEAD")
