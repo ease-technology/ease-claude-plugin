@@ -81,6 +81,43 @@ Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.git
 
 It uses no tools, runs only when you type it, and leaves later replies unchanged. When there is no earlier reply, it answers in one line that there is nothing to condense. When the last reply is already that short, it answers in one line that it is already short. When the session says nothing about a question or topic you gave, it says so in one line.
 
+## Autopilot
+
+To hand a session a goal and walk away, run `/ease:autopilot <order>`, or say so in plain words, for example "take control, don't ask me, use Jev as the second opinion". The session works in your place through the ease skills and decides every question they would ask you.
+
+It decides by the question rule: first from the record (the order, the ticket, `context.md`, earlier decisions, the code), then by research. Then it asks Jev for a second opinion with `ease-engine jev-opinion`, without telling Jev its pick. When Jev disagrees, it reviews the decision and asks again with its case, up to 3 rounds. If Jev is still not convinced, an important decision waits for you and an unimportant one takes the option that is easier to undo. It answers the engine's questions with `reply <run_id> --by autopilot`.
+
+It never takes these actions alone: merging into a shared branch, writing to production, deploying or releasing, sending anything in your name, force pushes, deleting what it didn't create, spending money, touching credentials or permissions, and weakening a check or a test. Each one is logged as an ASK JUAN entry with the exact command or click.
+
+Every decision goes to `.ease-context/handoffs/<slug>-decisions.md`, numbered and append-only, with why, Jev's picks and how to undo it. A later autopilot session on the same order reads the file and goes on from it. When the order is done, or nothing more can go ahead without you, it runs `/ease:handoff` and ends with three lines: the order's status, the number of ASK JUAN entries, and the path to the decisions file.
+
+Jev never decides, and autopilot leaves `jev_mode` as it is.
+
+## Pilot
+
+The pilot is one session that runs your orders across the ease, Souk and Proper workspaces while you are away. It starts a `/ease:autopilot <goal>` worker session for each order, watches the workers, restarts them when they stop, and brings you only the ASK JUAN actions. You talk to it from the Claude iPhone app: give it a goal, ask "how's it going?", answer an ASK JUAN entry with yes or no, say "show sessions" to get one read-only line per session in each workspace, or say "take over <session>, <goal>" to hand it a session. A background session is resumed as a `pilot-adopted-*` worker; for an interactive one, the pilot asks you to press ← or `/bg` first and never stops it.
+
+The pilot acts only on its own `pilot-*` sessions and the ones you handed over, and only reads the rest.
+
+Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN is one yes-or-no question, a notification is one line, and you say "more" to get the details.
+
+To start it, run `/ease:pilot` in any session in `~/ease`. The first time, it creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json` and the pilot's and workers' settings files. Then it launches the pilot as its own background session, called `pilot`, with Remote Control and the guard, and keeps the Mac awake with `caffeinate`. Open the `pilot` session in the Claude app and talk to it there. Keep the Mac plugged in with the lid open: closing the lid still puts it to sleep. `/ease:pilot stop` stops the pilot and lets the Mac sleep again.
+
+The pilot and every worker run with a guard, a PreToolUse hook (`pilot/guard.py`) that blocks these actions and tells the session to log them as ASK JUAN entries:
+
+- merging a pull request with `gh pr merge`
+- PR and issue comments and reviews (`gh pr comment`, `gh pr review`, `gh issue comment`)
+- `gh api` writes (POST, PATCH, PUT, DELETE) to comments, reviews or merges
+- `git merge` on, and `git push` to or from, a shared branch: one named in its workspace's `shared_branches` list in `workspaces.json` (Souk and Proper: `dev`, `develop`, `main`, `master`), in any repo or worktree under that workspace's folder
+- force pushes
+- branch deletes: remote deletes with `git push`, and `git branch -D` of a branch the session did not create
+- production database clients (`psql`, `pg_dump`, `mysql`, `mongosh`, `cloud-sql-proxy`) with a `prod_markers` value in their arguments
+- any tool matching a pattern in `blocked_tools`, such as sending on Slack or by email
+
+When you say yes to an entry, the pilot adds the exact command to `approvals.json`, and the guard lets it through once.
+
+The guard lives in our harness settings, the `--settings` files under `~/ease/.ease-context/pilot/`, never in a repo's settings.
+
 ## Change the plugin
 
 Try local changes without installing: `claude --plugin-dir <path to ease-claude-plugin>`. To release them, bump `version` in `.claude-plugin/plugin.json` and push. Installed copies only update when the version changes.

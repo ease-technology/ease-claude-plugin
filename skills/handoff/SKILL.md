@@ -1,8 +1,7 @@
 ---
 name: handoff
-description: Saves where the session's work stands to .ease-context/handoffs/<name>.md, then prints a ready-to-copy prompt that starts a fresh session from that file. User-invoked only, as /ease:handoff.
+description: Saves where the session's work stands to .ease-context/handoffs/<name>.md, then prints a ready-to-copy prompt that starts a fresh session from that file. Run as /ease:handoff, or by /ease:autopilot when it ends.
 argument-hint: "[optional note about why you're stopping]"
-disable-model-invocation: true
 ---
 
 # ease handoff

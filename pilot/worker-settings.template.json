@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "python3 __GUARD_PY__ --config ~/ease/.ease-context/pilot/workspaces.json"}
+        ]
+      }
+    ]
+  }
+}
