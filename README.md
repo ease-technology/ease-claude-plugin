@@ -95,7 +95,11 @@ Jev never decides, and autopilot leaves `jev_mode` as it is.
 
 ## Pilot
 
-The pilot is one session that runs your orders across the ease, Souk and Proper workspaces while you are away. It starts a `/ease:autopilot <goal>` worker session for each order, watches the workers, restarts them when they stop, and brings you only the ASK JUAN actions. You talk to it from the Claude iPhone app: give it a goal, ask "how's it going?", or answer an ASK JUAN entry with yes or no.
+The pilot is one session that runs your orders across the ease, Souk and Proper workspaces while you are away. It starts a `/ease:autopilot <goal>` worker session for each order, watches the workers, restarts them when they stop, and brings you only the ASK JUAN actions. You talk to it from the Claude iPhone app: give it a goal, ask "how's it going?", answer an ASK JUAN entry with yes or no, say "show sessions" to get one read-only line per session in each workspace, or say "take over <session>, <goal>" to hand it a session. A background session is resumed as a `pilot-adopted-*` worker; for an interactive one, the pilot asks you to press ← or `/bg` first and never stops it.
+
+The pilot acts only on its own `pilot-*` sessions and the ones you handed over, and only reads the rest.
+
+Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN is one yes-or-no question, a notification is one line, and you say "more" to get the details.
 
 To set it up, run `/ease:pilot` once. It creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json` and the pilot's and workers' settings files, then prints the launch command. After that, start the pilot with:
 
