@@ -93,6 +93,31 @@ Every decision goes to `.ease-context/handoffs/<slug>-decisions.md`, numbered an
 
 Jev never decides, and autopilot leaves `jev_mode` as it is.
 
+## Pilot
+
+The pilot is one session that runs your orders across the ease, Souk and Proper workspaces while you are away. It starts a `/ease:autopilot <goal>` worker session for each order, watches the workers, restarts them when they stop, and brings you only the ASK JUAN actions. You talk to it from the Claude iPhone app: give it a goal, ask "how's it going?", or answer an ASK JUAN entry with yes or no.
+
+To set it up, run `/ease:pilot` once. It creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json` and the pilot's and workers' settings files, then prints the launch command. After that, start the pilot with:
+
+```bash
+caffeinate -i env CLAUDE_CONFIG_DIR=~/.claude-ease claude --remote-control pilot --settings ~/ease/.ease-context/pilot/pilot-settings.json
+```
+
+The pilot and every worker run with a guard, a PreToolUse hook (`pilot/guard.py`) that blocks these actions and tells the session to log them as ASK JUAN entries:
+
+- merging a pull request with `gh pr merge`
+- PR and issue comments and reviews (`gh pr comment`, `gh pr review`, `gh issue comment`)
+- `gh api` writes (POST, PATCH, PUT, DELETE) to comments, reviews or merges
+- `git merge` on, and `git push` to or from, a shared branch listed in `shared_branches` in `workspaces.json`
+- force pushes
+- branch deletes: remote deletes with `git push`, and `git branch -D` of a branch the session did not create
+- production database clients (`psql`, `pg_dump`, `mysql`, `mongosh`, `cloud-sql-proxy`) with a `prod_markers` value in their arguments
+- any tool matching a pattern in `blocked_tools`, such as sending on Slack or by email
+
+When you say yes to an entry, the pilot adds the exact command to `approvals.json`, and the guard lets it through once.
+
+The guard lives in our harness settings, the `--settings` files under `~/ease/.ease-context/pilot/`, never in a repo's settings.
+
 ## Change the plugin
 
 Try local changes without installing: `claude --plugin-dir <path to ease-claude-plugin>`. To release them, bump `version` in `.claude-plugin/plugin.json` and push. Installed copies only update when the version changes.
