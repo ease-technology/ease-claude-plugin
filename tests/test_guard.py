@@ -95,8 +95,9 @@ def test_blocks_ask_juan_actions(repo, command):
     assert "Log the exact action as an ASK JUAN entry in your decisions file and do not retry it." in result.stderr
 
 
-def test_blocks_branch_delete_outside_own_prefix(repo):
-    result = guard(repo, "git branch -D someone-else", own_prefix="ease/run-1")
+@pytest.mark.parametrize("command", ["git branch -D other", "git branch -df other", "git branch -Df other"])
+def test_blocks_branch_delete_outside_own_prefix(repo, command):
+    result = guard(repo, command, own_prefix="ease/run-1")
     assert result.returncode == 2
     assert result.stderr.startswith("ASK JUAN:")
 
@@ -127,8 +128,9 @@ def test_allows_push_and_merge_on_a_non_shared_branch(repo, command):
     assert result.returncode == 0, result.stderr
 
 
-def test_allows_branch_delete_with_own_prefix(repo):
-    result = guard(repo, "git branch -D ease/run-1-task", own_prefix="ease/run-1")
+@pytest.mark.parametrize("command", ["git branch -D ease/run-1-task", "git branch -df ease/run-1-task"])
+def test_allows_branch_delete_with_own_prefix(repo, command):
+    result = guard(repo, command, own_prefix="ease/run-1")
     assert result.returncode == 0, result.stderr
 
 

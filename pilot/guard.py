@@ -200,9 +200,10 @@ class Guard:
         return None
 
     def check_branch_delete(self, args):
-        flags = {arg for arg in args if arg.startswith("-")}
-        forced_delete = "-D" in flags or (
-            flags & {"-d", "--delete"} and flags & {"-f", "--force"}
+        long_flags = {arg for arg in args if arg.startswith("--")}
+        letters = {letter for arg in args if arg.startswith("-") and not arg.startswith("--") for letter in arg[1:]}
+        forced_delete = "D" in letters or (
+            ("d" in letters or "--delete" in long_flags) and ("f" in letters or "--force" in long_flags)
         )
         if not forced_delete:
             return None
