@@ -95,9 +95,11 @@ Jev never decides, and autopilot leaves `jev_mode` as it is.
 
 ## Pilot
 
-The pilot is one session that runs your orders across the ease, Souk and Proper workspaces while you are away. It starts a `/ease:autopilot <goal>` worker session for each order, watches the workers, restarts them when they stop, and brings you only the ASK JUAN actions. You talk to it from the Claude iPhone app: give it a goal, ask "how's it going?", answer an ASK JUAN entry with yes or no, say "show sessions" to get one read-only line per session in each workspace, or say "take over <session>, <goal>" to hand it a session. A background session is resumed as a `pilot-adopted-*` worker; for an interactive one, the pilot asks you to press ← or `/bg` first and never stops it.
+The pilot is one session that runs your orders across the ease, Souk and Proper workspaces while you are away. It starts a `/ease:autopilot <goal>` worker session for each order, watches the workers, restarts them when they stop, and brings you only the ASK JUAN actions. You talk to it from the Claude iPhone app: give it a goal, ask "how's it going?", answer an ASK JUAN entry with yes or no, say "show sessions" to get one read-only line per session in each workspace, say "take over <session>, <goal>" to hand it a session, "tell <session> <message>" to send a handed-over session a message, or "give back <session>" to take it back. A handed-over session stays the same session under its own name, so you can still `claude attach` it; it keeps its own settings, so the guard does not bind it. For an interactive one, the pilot asks you to press ← or `/bg` first and never stops it.
 
 The pilot acts only on its own `pilot-*` sessions and the ones you handed over, and only reads the rest.
+
+The pilot wakes a background session with a message using `env -i … claude --bg --resume <full session id> "<message>"` and no other flags. With the calling session's Claude variables, any flag or a short id, the CLI starts a copy that never gets the message. The pilot's settings allow that one command and `claude stop`, so auto mode does not block them.
 
 Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN is one yes-or-no question, a notification is one line, and you say "more" to get the details.
 
