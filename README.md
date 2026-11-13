@@ -101,11 +101,7 @@ The pilot acts only on its own `pilot-*` sessions and the ones you handed over, 
 
 Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN is one yes-or-no question, a notification is one line, and you say "more" to get the details.
 
-To set it up, run `/ease:pilot` once. It creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json` and the pilot's and workers' settings files, then prints the launch command. After that, start the pilot with:
-
-```bash
-caffeinate -i env CLAUDE_CONFIG_DIR=~/.claude-ease claude --remote-control pilot --settings ~/ease/.ease-context/pilot/pilot-settings.json
-```
+To start it, run `/ease:pilot` in any session in `~/ease`. The first time, it creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json` and the pilot's and workers' settings files. Then it launches the pilot as its own background session, called `pilot`, with Remote Control and the guard, and keeps the Mac awake with `caffeinate`. Open the `pilot` session in the Claude app and talk to it there. Keep the Mac plugged in with the lid open: closing the lid still puts it to sleep. `/ease:pilot stop` stops the pilot and lets the Mac sleep again.
 
 The pilot and every worker run with a guard, a PreToolUse hook (`pilot/guard.py`) that blocks these actions and tells the session to log them as ASK JUAN entries:
 

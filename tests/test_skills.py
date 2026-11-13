@@ -57,5 +57,10 @@ def test_pilot_skill_names_its_rules():
         "/ease:autopilot",
         "jev-opinion",
         "ASK JUAN",
+        "-n pilot --remote-control pilot",
+        "/ease:pilot stop",
+        "/ease:pilot run",
+        "caffeinate.pid",
+        "counts as order `<slug>`'s worker",
     ):
         assert term in text, term
