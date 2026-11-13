@@ -78,7 +78,7 @@ def spawn(ws, state: State | TicketState, agent: str, prompt: str) -> dict:
 
 # ---------- reply ----------
 
-def reply(ws, state: State, text: str) -> dict:
+def reply(ws, state: State, text: str, by: str = "you") -> dict:
     """Handle what came back (an agent's report or the user's words), then save."""
     if state.step == "done":
         raise EaseError("this run is done")
@@ -89,7 +89,7 @@ def reply(ws, state: State, text: str) -> dict:
     if state.step == "plan":
         result = reply_plan(ws, state, project, text)
     elif state.step == "approve":
-        result = reply_approve(ws, state, project, text)
+        result = reply_approve(ws, state, project, text, by)
     elif state.step == "build":
         result = reply_build(state, project)
     else:
@@ -118,7 +118,7 @@ def reply_plan(ws, state: State, project: Project, text: str) -> dict:
     return {"ok": True}
 
 
-def reply_approve(ws, state: State, project: Project, text: str) -> dict:
+def reply_approve(ws, state: State, project: Project, text: str, by: str) -> dict:
     """The user's answer to the plan: approve, cancel, or change notes. It is logged next to Jev's score."""
     answer = text.strip().strip(".!").lower()
 
@@ -162,7 +162,7 @@ def reply_approve(ws, state: State, project: Project, text: str) -> dict:
         state.task_start = head(project.repos[state.tasks[0].repo].path)
         state.step = "build"
     verdict = answer if answer in ("approve", "cancel") else "change"  # after the checks: a refused approve isn't logged
-    state.plan_log.append(Verdict(state.plan_score, state.plan_confidence, verdict))
+    state.plan_log.append(Verdict(state.plan_score, state.plan_confidence, verdict, by))
     return {"ok": True}
 
 

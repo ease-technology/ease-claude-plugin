@@ -6,6 +6,7 @@ import urllib.request
 from dataclasses import asdict
 
 from engine.models import PrState, Question, State, Thread, TicketState
+from engine.workspace import EaseError
 
 API_URL = "https://api.typesafe.ai/v1/systemone"
 ACTIONS = {  # what can happen after a review, and what each one means
@@ -137,7 +138,7 @@ def judge_questions(
             "type": "choice",
             "instructions": (
                 f"For the `idea`, given the `decisions` so far: {q.question}\n\n"
-                f"What the code shows: {q.context}"
+                f"What the code and research show: {q.context}"
             ),
             "criteria": {label: q.options[label] for label in order},
         }
@@ -218,3 +219,51 @@ def score_ticket(key: str | None, state: TicketState) -> tuple[float | None, flo
     if score is None:
         return None, None
     return score, number_or_none(answer.get("confidence"))
+
+
+def opinion(key: str | None, question: str, context: str, options: dict, case: str = "") -> dict:
+    """A second opinion: the same choice asked twice in one call, with the options in opposite orders, because Jev
+    slightly favors the first option. `agree` is the label when both picks are the same, else None."""
+    if not key:
+        print("jev: no typesafe_api_key in config.json, so no picks", file=sys.stderr)  # stdout stays one JSON object
+    labels = list(options)
+    instructions = f"Given the `context`{' and the `case`' if case else ''}: {question}"
+    asked = {
+        name: {"type": "choice", "instructions": instructions, "criteria": {label: options[label] for label in order}}
+        for name, order in (("first", labels), ("second", labels[::-1]))
+    }
+    jev_state = {"context": context} | ({"case": case} if case else {})
+    answers = ask(key, jev_state, asked)
+
+    picks = []
+    for name in asked:
+        answer = answers.get(name, {})
+        choice = answer.get("choice")
+        if isinstance(choice, str) and choice in options:
+            picks.append({"choice": choice, "confidence": number_or_none(answer.get("confidence"))})
+        else:
+            picks.append({"choice": None, "confidence": None})
+    first, second = picks[0]["choice"], picks[1]["choice"]
+    return {"picks": picks, "agree": first if first is not None and first == second else None}
+
+
+def read_opinion_request(text: str) -> dict:
+    """The JSON request for `jev-opinion`: question, options ({label: meaning}, 2 or more), context and case."""
+    try:
+        request = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise EaseError(f"jev-opinion needs a JSON object on stdin: {error}")
+    if not isinstance(request, dict):
+        raise EaseError("jev-opinion needs a JSON object on stdin")
+    question, options = request.get("question"), request.get("options")
+    if not isinstance(question, str) or not question.strip():
+        raise EaseError("jev-opinion needs a non-empty `question`")
+    if not isinstance(options, dict) or len(options) < 2 or not all(isinstance(v, str) for v in options.values()):
+        raise EaseError("jev-opinion needs `options`: an object of 2 or more labels, each with a string meaning")
+    for field in ("context", "case"):
+        if field in request and not isinstance(request[field], str):
+            raise EaseError(f"jev-opinion needs `{field}` to be a string")
+    return {
+        "question": question, "context": request.get("context", ""), "options": options,
+        "case": request.get("case", ""),
+    }

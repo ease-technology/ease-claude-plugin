@@ -35,7 +35,7 @@ Each session drives its own run by its run id, so several sessions can work at o
 
 ## Tickets
 
-To shape an idea before building it, say so in plain words, for example "I want to improve the component sync in ease studio", or run `/ease:ticket <idea>`. An interviewer agent reads the code and asks you up to 4 questions at a time, each with a recommended answer, until nothing important is left open (5 rounds at most). Then it writes a one-page ticket to `.ease-context/projects/<name>/tickets/<slug>.md`. The ticket opens with a job story and has numbered acceptance criteria, and you build it with `/ease:build <that path>`.
+To shape an idea before building it, say so in plain words, for example "I want to improve the component sync in ease studio", or run `/ease:ticket <idea>`. An interviewer agent reads the code, looks up facts and how other products solve the same problem on the web, and asks you only what research can't answer: up to 4 questions at a time, each with a recommended answer, until nothing important is left open (5 rounds at most). Then it writes a one-page ticket to `.ease-context/projects/<name>/tickets/<slug>.md`. The ticket opens with a job story and has numbered acceptance criteria, and you build it with `/ease:build <that path>`.
 
 Jev answers every question too, without seeing the recommendation, and scores whether the ticket is ready to build by comparing it with the interview.
 
@@ -81,6 +81,43 @@ Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.git
 
 It uses no tools, runs only when you type it, and leaves later replies unchanged. When there is no earlier reply, it answers in one line that there is nothing to condense. When the last reply is already that short, it answers in one line that it is already short. When the session says nothing about a question or topic you gave, it says so in one line.
 
+## Autopilot
+
+To hand a session a goal and walk away, run `/ease:autopilot <order>`, or say so in plain words, for example "take control, don't ask me, use Jev as the second opinion". The session works in your place through the ease skills and decides every question they would ask you.
+
+It decides by the question rule: first from the record (the order, the ticket, `context.md`, earlier decisions, the code), then by research. Then it asks Jev for a second opinion with `ease-engine jev-opinion`, without telling Jev its pick. When Jev disagrees, it reviews the decision and asks again with its case, up to 3 rounds. If Jev is still not convinced, an important decision waits for you and an unimportant one takes the option that is easier to undo. It answers the engine's questions with `reply <run_id> --by autopilot`.
+
+It never takes these actions alone: merging into a shared branch, writing to production, deploying or releasing, sending anything in your name, force pushes, deleting what it didn't create, spending money, touching credentials or permissions, and weakening a check or a test. Each one is logged as an ASK JUAN entry with the exact command or click.
+
+Every decision goes to `.ease-context/handoffs/<slug>-decisions.md`, numbered and append-only, with why, Jev's picks and how to undo it. A later autopilot session on the same order reads the file and goes on from it. When the order is done, or nothing more can go ahead without you, it runs `/ease:handoff` and ends with three lines: the order's status, the number of ASK JUAN entries, and the path to the decisions file.
+
+Jev never decides, and autopilot leaves `jev_mode` as it is.
+
+## Pilot
+
+The pilot is one session that runs your orders across the ease, Souk and Proper workspaces while you are away. It starts a `/ease:autopilot <goal>` worker session for each order, watches the workers, restarts them when they stop, and brings you only the ASK JUAN actions. You talk to it from the Claude iPhone app: give it a goal, ask "how's it going?", answer an ASK JUAN entry with yes or no, say "show sessions" to get one read-only line per session in each workspace, or say "take over <session>, <goal>" to hand it a session. A background session is resumed as a `pilot-adopted-*` worker; for an interactive one, the pilot asks you to press ← or `/bg` first and never stops it.
+
+The pilot acts only on its own `pilot-*` sessions and the ones you handed over, and only reads the rest.
+
+Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN is one yes-or-no question, a notification is one line, and you say "more" to get the details.
+
+To start it, run `/ease:pilot` in any session in `~/ease`. The first time, it creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json` and the pilot's and workers' settings files. Then it launches the pilot as its own background session, called `pilot`, with Remote Control and the guard, and keeps the Mac awake with `caffeinate`. Open the `pilot` session in the Claude app and talk to it there. Keep the Mac plugged in with the lid open: closing the lid still puts it to sleep. `/ease:pilot stop` stops the pilot and lets the Mac sleep again.
+
+The pilot and every worker run with a guard, a PreToolUse hook (`pilot/guard.py`) that blocks these actions and tells the session to log them as ASK JUAN entries:
+
+- merging a pull request with `gh pr merge`
+- PR and issue comments and reviews (`gh pr comment`, `gh pr review`, `gh issue comment`)
+- `gh api` writes (POST, PATCH, PUT, DELETE) to comments, reviews or merges
+- `git merge` on, and `git push` to or from, a shared branch: one named in its workspace's `shared_branches` list in `workspaces.json` (Souk and Proper: `dev`, `develop`, `main`, `master`), in any repo or worktree under that workspace's folder
+- force pushes
+- branch deletes: remote deletes with `git push`, and `git branch -D` of a branch the session did not create
+- production database clients (`psql`, `pg_dump`, `mysql`, `mongosh`, `cloud-sql-proxy`) with a `prod_markers` value in their arguments
+- any tool matching a pattern in `blocked_tools`, such as sending on Slack or by email
+
+When you say yes to an entry, the pilot adds the exact command to `approvals.json`, and the guard lets it through once.
+
+The guard lives in our harness settings, the `--settings` files under `~/ease/.ease-context/pilot/`, never in a repo's settings.
+
 ## Change the plugin
 
 Try local changes without installing: `claude --plugin-dir <path to ease-claude-plugin>`. To release them, bump `version` in `.claude-plugin/plugin.json` and push. Installed copies only update when the version changes.
@@ -123,6 +160,16 @@ The key is a secret, so add `.ease-context/config.json` to your workspace's `.gi
 
 Jev scores how fully the plan covers the ticket, and after every review it says what it would do. The answer is logged in `state.json` under `log` next to the code rule's decision, so you can compare them. Each plan you answer goes under `plan_log`, with Jev's score, its confidence and your answer (approve, change or cancel). Ticket runs do the same for drafts under `draft_log`, and each question keeps Jev's pick next to your answer. This shadow data is what live mode's thresholds can later be set from. A run keeps the `jev_mode` it started with.
 
+When a session answers in your place, it replies with `reply <run_id> --by autopilot` (in build, `ticket` and `pr-comments`). The answer is recorded as `decided_by: "autopilot"` on questions, threads and plan and draft verdicts, and the summaries name it. Jev's agreement with you counts only your own answers.
+
+`ease-engine jev-opinion` asks Jev for a second opinion on any choice. It reads a JSON object on stdin:
+
+```json
+{"question": "Which fix?", "context": "...", "options": {"retry": "Retry the call", "skip": "Skip the step"}, "case": "..."}
+```
+
+`case` is optional, and `options` needs two or more labels. Jev favors the first option slightly, so the same question is asked twice in one call, with the options in opposite orders. The output is `{"picks": [...], "agree": label|null}`: one pick per question, each `{"choice", "confidence"}`, and `agree` is the label when both picks are the same. With no key, or when Jev fails, the picks are null and a `jev: ...` line goes to stderr. Malformed input gives `{"error": ...}`. It is a second opinion only: it never decides anything.
+
 To judge a task, Jev gets the ticket, the task, its diff (the first 20,000 characters), the checks and the review. So your code goes to TypeSafe's API.
 
 In shadow mode Jev only watches: the code rule decides. In live mode Jev decides, but three guardrails always win:
@@ -140,7 +187,7 @@ In shadow mode Jev only watches: the code rule decides. In live mode Jev decides
 - `engine/flow.py` holds the steps, the code rule and the live rule.
 - `engine/ticket.py` holds the ticket flow: the interview, the question rule and the ready rule.
 - `engine/pr_comments.py` holds the PR comments flow: the refusals, the remembered skips, the fix tasks, the push and the summary.
-- `engine/cli.py` is the `start`, `runs`, `next <run_id>` and `reply <run_id>` commands, for build and, after `ticket`, for tickets, and after `pr-comments`, for PR comments runs. `pr-comments start` also takes `--repo <name>`.
+- `engine/cli.py` is the `start`, `runs`, `next <run_id>` and `reply <run_id> [--by autopilot]` commands, for build and, after `ticket`, for tickets, and after `pr-comments`, for PR comments runs. `pr-comments start` also takes `--repo <name>`. `jev-opinion` asks Jev for a second opinion and never decides.
 
 Run the tests from a fresh clone:
 

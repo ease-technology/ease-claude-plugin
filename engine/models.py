@@ -40,6 +40,7 @@ class Verdict:           # Jev's score of a plan or a ticket draft, and your ans
     score: float | None
     confidence: float | None
     answer: str          # approve | change | cancel
+    decided_by: str = ""  # you | autopilot; empty in runs from before
 
 
 @dataclass
@@ -80,7 +81,7 @@ class Question:          # one interview question, and how it was answered
     jev: str | None = None             # Jev's pick, one of the labels
     jev_confidence: float | None = None
     answer: str = ""                   # a label, or your own words
-    decided_by: str = ""               # you | jev
+    decided_by: str = ""               # you | jev | autopilot
 
 
 @dataclass
@@ -118,7 +119,7 @@ class Thread:            # one open review thread on a PR, and what happened to 
     verdict: str = ""                  # fix | skip, empty until decided
     reason: str = ""                   # why it was skipped
     instruction: str = ""              # what to fix
-    decided_by: str = ""               # you | jev | earlier
+    decided_by: str = ""               # you | jev | autopilot | earlier
     earlier_verdict: str = ""          # the verdict an earlier run gave this thread
     earlier_reason: str = ""
     new_comments: list[str] = field(default_factory=list)  # ids of the comments that earlier run's skip didn't see

@@ -1,6 +1,7 @@
 import io
 import json
 
+from engine import jev
 from engine.cli import main
 from engine.workspace import CONTEXT_DIR, load_state
 from test_pr_comments import (
@@ -41,6 +42,38 @@ def test_start_next_reply(ws, monkeypatch, capsys):
     assert output(capsys) == {"runs": [
         {"run_id": run_id, "project": "demo", "title": "Add a `thing` for $USD", "step": "approve"}
     ]}
+
+
+def planned_run(monkeypatch, capsys):
+    """Start a build run and reply with the planner's report. It stops at the approve step."""
+    monkeypatch.setattr("sys.stdin", io.StringIO("Add a thing\n"))
+    assert main(["start", "demo"]) == 0
+    run_id = output(capsys)["run_id"]
+    monkeypatch.setattr("sys.stdin", io.StringIO(REPORT))
+    assert main(["reply", run_id]) == 0
+    assert output(capsys) == {"ok": True}
+    return run_id
+
+
+def test_reply_records_who_decided(ws, monkeypatch, capsys):  # AC2
+    monkeypatch.chdir(ws)
+    for args, decider in ([], "you"), (["--by", "autopilot"], "autopilot"):
+        run_id = planned_run(monkeypatch, capsys)
+        monkeypatch.setattr("sys.stdin", io.StringIO("cancel"))
+        assert main(["reply", run_id, *args]) == 0
+        assert output(capsys) == {"ok": True}
+        assert load_state(ws, run_id).plan_log[-1].decided_by == decider
+
+
+def test_an_unknown_decider_changes_nothing(ws, monkeypatch, capsys):  # AC8
+    monkeypatch.chdir(ws)
+    run_id = planned_run(monkeypatch, capsys)
+    file = ws / CONTEXT_DIR / "runs" / run_id / "state.json"
+    before = file.read_text()
+    monkeypatch.setattr("sys.stdin", io.StringIO("approve"))
+    assert main(["reply", run_id, "--by", "someone"]) == 1
+    assert output(capsys) == {"error": "--by must be one of: you, autopilot"}
+    assert file.read_text() == before
 
 
 def test_start_with_a_branch(ws, monkeypatch, capsys):
@@ -166,3 +199,47 @@ def test_a_stopped_pr_comments_run_continues_from_its_saved_step(ws, checkout, s
     assert resolves(scripted_gh) == ["T1", "T5"]
     subjects = git_out(ws / "origin.git", "log", "--format=%s", f"{pr_head}..{BRANCH}").splitlines()
     assert subjects == ["Fix a.py line 5", "Fix a.py line 1"]
+
+
+NO_PICKS = {"picks": [{"choice": None, "confidence": None}, {"choice": None, "confidence": None}], "agree": None}
+OPINION = {"question": "What now?", "context": "code", "options": {"keep": "leave it", "drop": "remove it"}}
+
+
+def test_jev_opinion_without_jev_prints_no_picks(ws, monkeypatch, capsys):  # AC7
+    monkeypatch.chdir(ws)
+
+    def broken(key, body):
+        raise TimeoutError("too slow")
+
+    monkeypatch.setattr(jev, "post", broken)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(OPINION)))
+    assert main(["jev-opinion"]) == 0  # no key in config.json
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == NO_PICKS
+    assert captured.err.startswith("jev:")
+
+    config = ws / CONTEXT_DIR / "config.json"
+    config.write_text(json.dumps({"typesafe_api_key": "key"}))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(OPINION)))
+    assert main(["jev-opinion"]) == 0  # a key, but Jev fails
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == NO_PICKS
+    assert captured.err == "jev: too slow\n"
+
+
+def test_jev_opinion_rejects_malformed_input(ws, monkeypatch, capsys):  # AC7
+    monkeypatch.chdir(ws)
+    bad = [
+        {"options": OPINION["options"]},  # no question
+        {"question": "What now?"},  # no options
+        {"question": "What now?", "options": {"keep": "leave it"}},  # one option
+        {**OPINION, "case": 3},
+        ["not", "an", "object"],
+    ]
+    for request in bad:
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
+        assert main(["jev-opinion"]) == 1
+        assert set(output(capsys)) == {"error"}
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    assert main(["jev-opinion"]) == 1
+    assert set(output(capsys)) == {"error"}
