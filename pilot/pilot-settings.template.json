@@ -1,10 +1,20 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(claude stop *)",
+      "Bash(cd *)",
+      "Bash(env -i HOME=\"$HOME\" PATH=\"$PATH\" CLAUDE_CONFIG_DIR=* claude --bg --resume *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "*",
         "hooks": [
-          {"type": "command", "command": "python3 __GUARD_PY__ --config ~/ease/.ease-context/pilot/workspaces.json --approvals ~/ease/.ease-context/pilot/approvals.json"}
+          {
+            "type": "command",
+            "command": "python3 __GUARD_PY__ --config ~/ease/.ease-context/pilot/workspaces.json --approvals ~/ease/.ease-context/pilot/approvals.json"
+          }
         ]
       }
     ]

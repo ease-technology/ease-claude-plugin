@@ -87,6 +87,7 @@ def guard(repo, command, cwd=None, own_prefix=None, approvals=None):
         "cd app && git push -f",
         "GH_TOKEN=x gh pr merge 3",
         "env GH_TOKEN=x gh pr merge 3",
+        "env -i HOME=/h git push -f",
         'git push origin "main"',
         "echo ok; git push origin main",
         "git status | gh pr merge 3",

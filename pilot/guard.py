@@ -102,7 +102,9 @@ class Guard:
             except ValueError as error:
                 raise Unparseable(error) from error
             while tokens and (ASSIGNMENT.match(tokens[0]) or tokens[0] == "env"):
-                tokens.pop(0)
+                if tokens.pop(0) == "env":
+                    while tokens and tokens[0].startswith("-"):
+                        tokens.pop(0)
             if not tokens:
                 continue
             if tokens[0] == "cd":
