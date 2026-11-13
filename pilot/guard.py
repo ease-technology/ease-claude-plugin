@@ -130,9 +130,13 @@ class Guard:
         if args[:2] in (["pr", "comment"], ["pr", "review"], ["issue", "comment"]):
             return f"gh {args[0]} {args[1]} posts on GitHub"
         if args[:1] == ["api"]:
-            method, path, rest = None, None, args[1:]
+            method, path, fields, rest = None, None, False, args[1:]
             while rest:
                 arg = rest.pop(0)
+                if arg in ("-f", "-F", "--field", "--raw-field", "--input") or arg.startswith(
+                    ("-f", "-F", "--field=", "--raw-field=", "--input=")
+                ):
+                    fields = True
                 if arg in ("-X", "--method"):
                     method = rest.pop(0) if rest else None
                 elif arg.startswith("--method="):
@@ -143,6 +147,8 @@ class Guard:
                     rest = rest[1:]
                 elif not arg.startswith("-") and path is None:
                     path = arg
+            if method is None and fields:
+                method = "POST"
             if (method or "").upper() in WRITE_METHODS and path and re.search(r"comments|reviews|merge", path):
                 return f"gh api {method.upper()} {path} writes to GitHub"
         return None
