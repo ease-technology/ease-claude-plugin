@@ -33,3 +33,20 @@ def test_autopilot_skill_names_its_rules():
     text = (SKILLS / "autopilot" / "SKILL.md").read_text()
     for term in ("jev-opinion", "--by autopilot", "ASK JUAN"):
         assert term in text, term
+
+
+def test_pilot_skill_names_its_rules():
+    path = SKILLS / "pilot" / "SKILL.md"
+    assert field(frontmatter(path), "disable-model-invocation") == "true"
+    text = path.read_text()
+    for term in (
+        "orders.md",
+        "approvals.json",
+        "pilot-*",
+        "Never touch any other session",
+        "--disallowedTools AskUserQuestion",
+        "/ease:autopilot",
+        "jev-opinion",
+        "ASK JUAN",
+    ):
+        assert term in text, term
