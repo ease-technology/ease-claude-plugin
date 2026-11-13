@@ -25,7 +25,10 @@ PUSH_VALUE_OPTIONS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec
 
 
 def split_commands(command):
-    """Split on &&, ||, ;, | and newlines that are outside quotes."""
+    """Split on &&, ||, ;, |, & and newlines that are outside quotes.
+
+    A single & that belongs to a redirect (2>&1, >&2, &>file) does not split.
+    """
     pieces, current, quote, i = [], [], None, 0
     while i < len(command):
         char = command[i]
@@ -42,7 +45,9 @@ def split_commands(command):
         elif char in "'\"":
             quote = char
             current.append(char)
-        elif char in ";|\n" or command.startswith("&&", i):
+        elif char in ";|\n" or command.startswith("&&", i) or (
+            char == "&" and command[i - 1 : i] not in (">", "<") and command[i + 1 : i + 2] != ">"
+        ):
             pieces.append("".join(current))
             current = []
             if command.startswith("&&", i):

@@ -83,6 +83,7 @@ def guard(repo, command, cwd=None, own_prefix=None, approvals=None):
         'git push origin "main"',
         "echo ok; git push origin main",
         "git status | gh pr merge 3",
+        "git status & git push -f",
     ],
 )
 def test_blocks_ask_juan_actions(repo, command):
@@ -110,6 +111,7 @@ def test_blocks_branch_delete_outside_own_prefix(repo):
         "gh api repos/o/r/pulls/1",
         "psql -h localhost -U me",
         "git status && git log --oneline",
+        "git log 2>&1 | cat",
     ],
 )
 def test_allows_other_commands(repo, command):
