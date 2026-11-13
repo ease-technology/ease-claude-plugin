@@ -3,7 +3,7 @@
     "allow": [
       "Bash(claude stop *)",
       "Bash(cd *)",
-      "Bash(env -i HOME=\"$HOME\" PATH=\"$PATH\" CLAUDE_CONFIG_DIR=* claude --bg --resume *)"
+      "Bash(env -i HOME=\"$HOME\" PATH=\"$PATH\" USER=\"$USER\" LOGNAME=\"$LOGNAME\" CLAUDE_CONFIG_DIR=* claude --bg --resume *)"
     ]
   },
   "hooks": {

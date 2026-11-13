@@ -45,7 +45,7 @@ def test_pilot_skill_names_its_rules():
         "pilot-*",
         "act only on `pilot-*` sessions and the sessions Juan handed over, which `orders.md` names by id, and only read every other session",
         "Take over <session>, <goal>",
-        "env -i HOME=\"$HOME\" PATH=\"$PATH\" CLAUDE_CONFIG_DIR=<dir> claude --bg --resume <sessionId> \"<message>\"",
+        "env -i HOME=\"$HOME\" PATH=\"$PATH\" USER=\"$USER\" LOGNAME=\"$LOGNAME\" CLAUDE_CONFIG_DIR=<dir> claude --bg --resume <sessionId> \"<message>\"",
         "Never add other flags",
         "(session <sessionId>)",
         "Tell <session> <message>",
