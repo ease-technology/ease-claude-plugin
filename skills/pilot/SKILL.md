@@ -103,7 +103,7 @@ When Juan says "give back <session>", remove its line from `orders.md`, log it, 
 
 ## Sending a message
 
-The only way into a background session is to wake it with a message. If it is busy, run `claude stop <id>` first, because waking a running session starts a copy, and wait until `claude agents --json --all` lists it with no `pid`. Then run exactly:
+The only way into a background session is to wake it with a message. If it is busy, run `claude stop <id>` first, because waking a running session starts a copy, and wait 10 seconds: the stop finishes after the command returns. Then run exactly:
 
 ```bash
 cd <cwd> && env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<dir> claude --bg --resume <sessionId> "<message>"
