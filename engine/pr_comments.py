@@ -311,14 +311,14 @@ def comment_lines(thread: Thread) -> list[str]:
 
 # ---------- reply ----------
 
-def reply(ws, state: PrState, text: str) -> dict:
+def reply(ws, state: PrState, text: str, by: str = "you") -> dict:
     """Handle what came back (an agent's report or the user's words), then save."""
     if state.step == "done":
         raise EaseError("this run is done")
     if state.step == "judge":
         result = reply_judge(ws, state, text)
     elif state.step == "answer":
-        result = reply_answers(ws, state, text)
+        result = reply_answers(ws, state, text, by)
     elif state.step == "build":
         result = reply_build(state, load_project(ws, state.project), text)
     elif state.step == "review":
@@ -403,7 +403,7 @@ def check_entry(entry: dict) -> dict:
     return {"proposal": proposal, **texts, "posted_draft": posted_draft}
 
 
-def reply_answers(ws, state: PrState, text: str) -> dict:
+def reply_answers(ws, state: PrState, text: str, by: str) -> dict:
     """Your answers for the threads you were just asked about, keyed by the question text. One that can't be read leaves
     its thread undecided, so it is asked again, and the others are still saved."""
     answers = read_answers(text)
@@ -413,7 +413,7 @@ def reply_answers(ws, state: PrState, text: str) -> dict:
         answer = answers.get(question, "")
         match = ANSWER.fullmatch(answer)
         if match:
-            decide(thread, match[1].lower(), (match[2] or "").strip(), "you")
+            decide(thread, match[1].lower(), (match[2] or "").strip(), by)
         else:
             rejected.append({"question": question, "answer": answer})
     after_verdicts(ws, state)
@@ -544,6 +544,10 @@ def summary(state: PrState) -> str:
         f"PR: {state.pr_url}",
         f"Jev mode: {state.jev_mode}",
         *section("Settled by Jev", [f"{where(t)}: {t.verdict}" for t in state.threads if t.decided_by == "jev"]),
+        *section(
+            "Decided by autopilot",
+            [f"{where(t)}: {t.verdict}" for t in state.threads if t.decided_by == "autopilot"],
+        ),
         *section("Skipped earlier", [f"{where(t)}: {t.draft}" for t in state.threads if t.decided_by == "earlier"]),
         f"Jev agreed with you on {len(agreed)} of {len(asked)} threads",
     ]

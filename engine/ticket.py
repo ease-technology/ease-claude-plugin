@@ -114,7 +114,7 @@ def ask_approval(state: TicketState) -> dict:
 
 # ---------- reply ----------
 
-def reply(ws, state: TicketState, text: str) -> dict:
+def reply(ws, state: TicketState, text: str, by: str = "you") -> dict:
     """Handle what came back (the interviewer's message or your answers), then save."""
     if state.step == "done":
         raise EaseError("this ticket run is done")
@@ -124,9 +124,9 @@ def reply(ws, state: TicketState, text: str) -> dict:
     if state.step == "interview":
         result = reply_interview(ws, state, text)
     elif state.step == "answer":
-        result = reply_answers(state, text)
+        result = reply_answers(state, text, by)
     else:
-        result = reply_approve(ws, state, text)
+        result = reply_approve(ws, state, text, by)
 
     save_state(ws, state)
     return result
@@ -201,7 +201,7 @@ def question_rule(mode, recommended, jev_pick, confidence) -> str:
     return "you"
 
 
-def reply_answers(state: TicketState, text: str) -> dict:
+def reply_answers(state: TicketState, text: str, by: str = "you") -> dict:
     """Your answers to this round's open questions, keyed by the question text."""
     answers = read_answers(text)
     open_questions = [q for q in state.questions if q.round == state.rounds and not q.answer]
@@ -209,7 +209,7 @@ def reply_answers(state: TicketState, text: str) -> dict:
     if missing:
         raise EaseError("no answer for: " + " | ".join(missing))
     for q in open_questions:
-        q.answer, q.decided_by = answers[q.question], "you"
+        q.answer, q.decided_by = answers[q.question], by
     state.step = "interview"
     return {"ok": True}
 
@@ -268,7 +268,7 @@ def ready_rule(mode, score, confidence, extra_round_used) -> str:
     return "ask_you" if extra_round_used else "ask_more"
 
 
-def reply_approve(ws, state: TicketState, text: str) -> dict:
+def reply_approve(ws, state: TicketState, text: str, by: str = "you") -> dict:
     """Your answer to the draft: Approve, Cancel, or the changes you want. It is logged next to Jev's score."""
     answer = read_answers(text).get(APPROVE_QUESTION, "")
     if not answer:
@@ -282,7 +282,7 @@ def reply_approve(ws, state: TicketState, text: str) -> dict:
         state.notes = answer
         state.step = "interview"
     verdict = answer.lower() if answer.lower() in ("approve", "cancel") else "change"
-    state.draft_log.append(Verdict(state.readiness, state.readiness_confidence, verdict))
+    state.draft_log.append(Verdict(state.readiness, state.readiness_confidence, verdict, by))
     return {"ok": True}
 
 
@@ -320,6 +320,7 @@ def summary(state: TicketState) -> str:
     agreed = [q for q in judged if q.jev == q.answer]
     paired = [q for q in judged if q.jev == q.recommended]  # Jev and the recommendation agreed
     you_too = [q for q in paired if q.answer == q.recommended]
+    autopilot = len([q for q in state.questions if q.decided_by == "autopilot"])
     settled = len([q for q in state.questions if q.decided_by == "jev"])
 
     if state.outcome == "written":
@@ -328,7 +329,7 @@ def summary(state: TicketState) -> str:
         lines = ["Cancelled: no ticket written"]
     lines += [
         f"Questions: {len(state.questions)} in {state.rounds} rounds "
-        f"({len(yours)} answered by you, {settled} settled by Jev)",
+        f"({len(yours)} answered by you, {autopilot} decided by autopilot, {settled} settled by Jev)",
         f"Jev agreed with you on {len(agreed)} of {len(judged)} questions",
         f"On the {len(paired)} where Jev agreed with the recommendation, you agreed too {len(you_too)} times",
         readiness_line(state),
@@ -350,7 +351,7 @@ def interviewer_prompt(state: TicketState, project: Project) -> str:
     if state.questions:
         lines += ["## Questions so far", ""]
         for q in state.questions:
-            who = "Jev" if q.decided_by == "jev" else "the user"
+            who = {"jev": "Jev", "autopilot": "autopilot"}.get(q.decided_by, "the user")
             lines.append(f"- {q.question} Answer: {q.answer} (decided by {who})")
         lines.append("")
     if state.draft:

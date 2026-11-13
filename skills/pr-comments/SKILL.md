@@ -49,6 +49,8 @@ python3 "<skill base dir>/../../bin/ease-engine" pr-comments reply <run_id> <<'E
 EASE_REPLY
 ```
 
+Under /ease:autopilot, don't call AskUserQuestion. Decide each question by the autopilot question rule, log each decision, and reply with `pr-comments reply <run_id> --by autopilot`, with the same answers JSON.
+
 The reply may list answers under `rejected`, because words for "Other" must start with Fix or Skip. Tell the user so in one line and run `pr-comments next <run_id>` again, which asks about those threads again. The other answers are already saved.
 
 **done.** Show `summary` and stop.

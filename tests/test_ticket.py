@@ -105,13 +105,13 @@ def test_shadow_run(ws, monkeypatch):
     assert action["questions"][0]["question"] == ticket.APPROVE_QUESTION
     send(ws, answers({ticket.APPROVE_QUESTION: "Approve"}))
 
-    assert newest(ws).draft_log == [Verdict(4.2, 0.8, "approve")]
+    assert newest(ws).draft_log == [Verdict(4.2, 0.8, "approve", "you")]
     assert (folder / "add-a-thing.md").read_text() == "mine"  # never overwritten
     path = folder / "add-a-thing-2.md"
     assert path.read_text() == TICKET
     summary = ask(ws)["summary"]
     assert f"Build it: /ease:build {path}" in summary
-    assert "Questions: 3 in 1 rounds (3 answered by you, 0 settled by Jev)" in summary
+    assert "Questions: 3 in 1 rounds (3 answered by you, 0 decided by autopilot, 0 settled by Jev)" in summary
     assert "Jev agreed with you on 1 of 3 questions" in summary
     assert "On the 2 where Jev agreed with the recommendation, you agreed too 1 times" in summary
 
@@ -164,6 +164,32 @@ def test_changes_go_back_then_cancel_writes_nothing(ws):
     assert "Cancelled: no ticket written" in ask(ws)["summary"]
     with pytest.raises(EaseError, match="this ticket run is done"):
         send(ws, "again")
+
+
+def test_autopilot_answers_are_its_own(ws, monkeypatch):
+    use_jev(ws, monkeypatch, picks=[("A", 0.9), ("B", 0.9)])
+    ticket.start(ws, None, "Add a thing")
+    send(ws, round_of(q("First?"), q("Second?")))
+    ticket.reply(ws, newest(ws), answers({"First?": "A", "Second?": "A"}), by="autopilot")
+    assert [x.decided_by for x in newest(ws).questions] == ["autopilot", "autopilot"]
+    ask(ws)
+    assert "- First? Answer: A (decided by autopilot)" in last_prompt(ws)
+
+    send(ws, TICKET)
+    send(ws, answers({ticket.APPROVE_QUESTION: "Cancel"}))
+    summary = ask(ws)["summary"]
+    assert "(0 answered by you, 2 decided by autopilot, 0 settled by Jev)" in summary
+    assert "Jev agreed with you on 0 of 0 questions" in summary  # autopilot's answers are left out
+
+
+def test_draft_log_records_who_decided(ws):
+    ticket.start(ws, None, "Add a thing")
+    send(ws, TICKET)
+    ticket.reply(ws, newest(ws), answers({ticket.APPROVE_QUESTION: "Also handle errors"}), by="autopilot")
+    send(ws, TICKET)
+    send(ws, answers({ticket.APPROVE_QUESTION: "Cancel"}))
+    assert [(v.answer, v.decided_by) for v in newest(ws).draft_log] == [
+        ("change", "autopilot"), ("cancel", "you")]
 
 
 @pytest.mark.parametrize("mode, pick, confidence, expected", [

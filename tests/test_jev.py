@@ -196,3 +196,44 @@ def test_judge_threads_with_no_key_says_so_and_calls_nothing(monkeypatch, capsys
 
     assert calls == []
     assert capsys.readouterr().err.startswith("jev: ")
+
+
+OPTIONS = {"keep": "leave it as it is", "change": "change it", "drop": "remove it"}
+
+
+def test_opinion_asks_once_with_the_options_in_opposite_orders(monkeypatch):  # AC6
+    calls = []
+    answers = {"first": {"choice": "keep", "confidence": 0.8}, "second": {"choice": "keep", "confidence": 0.6}}
+    monkeypatch.setattr(jev, "post", fake_post(answers, calls))
+    result = jev.opinion("key", "What now?", "some code", OPTIONS, case="the case")
+
+    assert len(calls) == 1
+    questions = calls[0]["questions"]
+    assert list(questions) == ["first", "second"]
+    assert list(questions["first"]["criteria"]) == ["keep", "change", "drop"]
+    assert list(questions["second"]["criteria"]) == ["drop", "change", "keep"]
+    assert questions["first"]["instructions"] == "Given the `context` and the `case`: What now?"
+    assert calls[0]["state"] == {"context": "some code", "case": "the case"}
+    assert result == {
+        "picks": [{"choice": "keep", "confidence": 0.8}, {"choice": "keep", "confidence": 0.6}], "agree": "keep",
+    }
+
+
+def test_opinion_without_a_case_and_with_different_picks(monkeypatch):  # AC6
+    calls = []
+    answers = {"first": {"choice": "keep", "confidence": 0.8}, "second": {"choice": "drop"}}
+    monkeypatch.setattr(jev, "post", fake_post(answers, calls))
+    result = jev.opinion("key", "What now?", "some code", OPTIONS)
+
+    assert calls[0]["state"] == {"context": "some code"}
+    assert calls[0]["questions"]["first"]["instructions"] == "Given the `context`: What now?"
+    assert result == {
+        "picks": [{"choice": "keep", "confidence": 0.8}, {"choice": "drop", "confidence": None}], "agree": None,
+    }
+
+
+def test_opinion_counts_an_unknown_choice_as_no_pick(monkeypatch):
+    answers = {"first": {"choice": "maybe", "confidence": 0.9}, "second": {"choice": "maybe", "confidence": 0.9}}
+    monkeypatch.setattr(jev, "post", fake_post(answers, []))
+    nothing = {"choice": None, "confidence": None}
+    assert jev.opinion("key", "What now?", "", OPTIONS) == {"picks": [nothing, nothing], "agree": None}
