@@ -2,7 +2,8 @@
 """PreToolUse hook that blocks the ASK JUAN actions.
 
 Reads the hook JSON on stdin. A blocked call exits 2 with one `ASK JUAN:` line on stderr;
-anything else exits 0. Standard library only.
+anything else exits 0. Any error inside the guard also exits 2 with one `ASK JUAN: guard error` line,
+except a command that cannot be parsed, which is let through with a note. Standard library only.
 """
 import argparse
 import fnmatch
@@ -53,6 +54,10 @@ def split_commands(command):
     return [piece for piece in pieces if piece.strip()]
 
 
+class Unparseable(Exception):
+    """shlex could not split a piece of the command."""
+
+
 def git_output(folder, *args):
     try:
         result = subprocess.run(["git", *args], cwd=folder, capture_output=True, text=True)
@@ -80,7 +85,10 @@ class Guard:
     def check_command(self, command, folder):
         """The reason the first blocked simple command is blocked, or None."""
         for piece in split_commands(command):
-            tokens = shlex.split(piece)
+            try:
+                tokens = shlex.split(piece)
+            except ValueError as error:
+                raise Unparseable(error) from error
             while tokens and (ASSIGNMENT.match(tokens[0]) or tokens[0] == "env"):
                 tokens.pop(0)
             if not tokens:
@@ -224,25 +232,28 @@ def main():
     parser.add_argument("--own-prefix")
     options = parser.parse_args()
 
-    with open(options.config) as file:
-        config = json.load(file)
-    event = json.load(sys.stdin)
-    tool = event.get("tool_name", "")
-    if tool != "Bash":
-        if any(fnmatch.fnmatchcase(tool, pattern) for pattern in config.get("blocked_tools", [])):
-            return ask_juan(f"{tool} is a blocked tool")
-        return 0
-    command = (event.get("tool_input") or {}).get("command", "")
-    folder = event.get("cwd") or os.getcwd()
-
     try:
-        reason = Guard(config, options.own_prefix).check_command(command, folder)
-    except ValueError as error:
-        print(f"guard: could not parse the command ({error}), letting it through", file=sys.stderr)
-        return 0
-    if not reason or (options.approvals and use_approval(options.approvals, command)):
-        return 0
-    return ask_juan(reason)
+        with open(options.config) as file:
+            config = json.load(file)
+        event = json.load(sys.stdin)
+        tool = event.get("tool_name", "")
+        if tool != "Bash":
+            if any(fnmatch.fnmatchcase(tool, pattern) for pattern in config.get("blocked_tools", [])):
+                return ask_juan(f"{tool} is a blocked tool")
+            return 0
+        command = (event.get("tool_input") or {}).get("command", "")
+        folder = event.get("cwd") or os.getcwd()
+
+        try:
+            reason = Guard(config, options.own_prefix).check_command(command, folder)
+        except Unparseable as error:
+            print(f"guard: could not parse the command ({error}), letting it through", file=sys.stderr)
+            return 0
+        if not reason or (options.approvals and use_approval(options.approvals, command)):
+            return 0
+        return ask_juan(reason)
+    except Exception as error:
+        return ask_juan(f"guard error ({type(error).__name__}: {error})")
 
 
 if __name__ == "__main__":

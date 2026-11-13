@@ -137,6 +137,24 @@ def test_lets_unparseable_command_through_with_a_note(repo):
     assert result.stderr.startswith("guard:")
 
 
+def test_missing_config_asks_juan(repo, tmp_path):
+    args = [sys.executable, str(GUARD), "--config", str(tmp_path / "missing.json")]
+    event = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": str(repo)}
+    result = subprocess.run(args, input=json.dumps(event), capture_output=True, text=True)
+    assert result.returncode == 2
+    assert result.stderr.startswith("ASK JUAN: guard error")
+    assert result.stderr.count("\n") == 1
+
+
+def test_error_inside_a_check_asks_juan_and_never_exits_1(repo):
+    config = repo.parent.parent / "workspaces.json"
+    config.write_text(json.dumps({**json.loads(config.read_text()), "prod_markers": 5}))
+    result = guard(repo, "psql -h asado-prod")
+    assert result.returncode != 1
+    assert result.returncode == 2
+    assert result.stderr.startswith("ASK JUAN: guard error")
+
+
 def test_ignores_other_tools(repo):
     result = run_guard(repo, {"tool_name": "Read", "tool_input": {"file_path": "/x"}, "cwd": str(repo)})
     assert result.returncode == 0
