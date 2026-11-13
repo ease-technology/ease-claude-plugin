@@ -220,7 +220,13 @@ def use_approval(path, command):
             text = file.read()
     except FileNotFoundError:
         return False
-    approvals = json.loads(text) if text.strip() else []
+    try:
+        approvals = json.loads(text) if text.strip() else []
+    except json.JSONDecodeError:
+        approvals = None
+    if not isinstance(approvals, list):
+        print(f"guard: approvals file {path} is not a JSON list, approving nothing", file=sys.stderr)
+        return False
     if command not in approvals:
         return False
     approvals.remove(command)

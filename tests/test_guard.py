@@ -202,3 +202,15 @@ def test_missing_or_empty_approvals_file_approves_nothing(repo, tmp_path, conten
     if content is not None:
         approvals.write_text(content)
     assert guard(repo, "gh pr merge 3", approvals=approvals).returncode == 2
+
+
+@pytest.mark.parametrize("content", ["{bad", '{"a": 1}'])
+def test_malformed_approvals_file_approves_nothing_and_is_left_alone(repo, tmp_path, content):
+    approvals = tmp_path / "approvals.json"
+    approvals.write_text(content)
+    result = guard(repo, "gh pr merge 3", approvals=approvals)
+    assert result.returncode == 2
+    lines = result.stderr.splitlines()
+    assert lines[0].startswith("guard:")
+    assert any(line.startswith("ASK JUAN:") for line in lines[1:])
+    assert approvals.read_text() == content
