@@ -92,6 +92,13 @@ def test_pilot_skill_names_its_rules():
         "within 60 seconds",
         "handoffs/pilot.md",
         "grep -H '^[0-9]*\\. \\*\\*heavy: '",
+        "grep -H '^[0-9]*\\. \\*\\*ASK JUAN'",
+        "run_in_background",
+        "watcher.pid",
+        "kill -0",
+        "done, stopped, blocked, failed or waiting",
+        "Moves among busy, working and idle are not news, and neither is a move from one ended state to another, such as blocked to stopped after `claude stop`.",
+        "each next wakeup is set to the 1-hour maximum",
         ".ease-context/handoffs/*-decisions.md",
         'w["path"]',
         "**Weigh the load.**",
@@ -128,6 +135,13 @@ def test_pilot_skill_names_its_rules():
         "When an order is to answer a PR's review comments and another live session may be using that repo, hold the order until the repo is free.",
     ):
         assert term in text, term
+
+
+def test_pilot_waking_names_no_monitor_and_no_ten_minutes():
+    text = (SKILLS / "pilot" / "SKILL.md").read_text()
+    waking = text[text.index("## Waking") : text.index("## Each wake")]
+    for term in ("Monitor", "10 minutes"):
+        assert term not in waking, term
 
 
 def test_pilot_skill_runs_in_the_foreground_without_remote_control():
