@@ -1,5 +1,6 @@
 """Every skill's SKILL.md has frontmatter the plugin loader can read."""
 import pathlib
+import re
 
 SKILLS = pathlib.Path(__file__).parent.parent / "skills"
 
@@ -93,5 +94,31 @@ def test_pilot_skill_names_its_rules():
         "grep -H '^[0-9]*\\. \\*\\*heavy: '",
         ".ease-context/handoffs/*-decisions.md",
         'w["path"]',
+        "**Weigh the load.**",
+        "run `ps` on its process tree: `ps -A -o pid=,ppid=,rss=,%cpu=,command=`, walked from that pid",
+        "Decide by judgment; no number triggers an action.",
+        "send it a slow-down request with [Sending a message](#sending-a-message): `claude stop <id>`, wait 10 seconds, then the exact resume command",
+        "names the lighter way, such as rerun the tests with `--maxWorkers=1`",
+        "a stale `.git/index.lock`",
+        "A stop is always followed at once by the resume; nothing is paused.",
+        "Never stop an interactive session or any session that is not `pilot-*` or handed over in `orders.md`.",
+        "Do not ask the same session again until it has a new heavy entry.",
+        "with the session's name, the reason and the heavy entry it answers",
+        "that no managed session noted or owns",
+        "stop nothing, log it in `decisions.md`, and tell Juan in one line, once.",
+        "Each request to slow down is exactly one line naming the session and the request.",
+        "Unmanaged load is one line.",
+        "A wake that finds nothing heavy sends nothing about resources.",
+        "Starts still follow `max_workers` only.",
+        "How's the computer?",
+        "11. Measure your own size",
     ):
         assert term in text, term
+
+
+def test_skills_name_no_resource_threshold():
+    number = re.compile(r"\d+(\.\d+)?\s*(GB|MB|%)|load average\D{0,5}\d", re.IGNORECASE)
+    for name in ("autopilot", "pilot"):
+        text = (SKILLS / name / "SKILL.md").read_text()
+        match = number.search(text)
+        assert not match, f"{name}: {match and match.group(0)}"
