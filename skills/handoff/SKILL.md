@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Saves where the session's work stands to .ease-context/handoffs/<name>.md, then prints a ready-to-copy prompt that starts a fresh session from that file. Run as /ease:handoff, or by /ease:autopilot when it ends.
+description: Saves where the session's work stands to .ease-context/handoffs/<name>.md, then prints a ready-to-copy prompt that starts a fresh session from that file. Run as /ease:handoff, or by /ease:autopilot when it ends or its context gets heavy.
 argument-hint: "[optional note about why you're stopping]"
 ---
 
@@ -21,7 +21,7 @@ Find the workspace: the current folder, or the nearest folder above it, that con
 
 Name the handoff, taking the first of these that applies:
 
-1. This session was started from a handoff prompt: reuse that prompt's `Handoff file:` path as it is, even if the session also worked on a ticket. Read that file before overwriting it, because section 3 carries its Documents and Session story forward. An earlier file without those sections carries nothing.
+1. This session was started from a handoff prompt, or with a `Continue from <path>` line: reuse that prompt's `Handoff file:` path, or the `Continue from` path, as it is, even if the session also worked on a ticket. This keeps one handoff file for the whole chain. Read that file before overwriting it, because section 3 carries its Documents and Session story forward. An earlier file without those sections carries nothing.
 2. The session has exactly one ticket, one it wrote, built or relied on, and its file exists at `.ease-context/projects/<project>/tickets/<slug>.md`: use that file name without `.md`.
 3. Several tickets, none, or one that is not written yet: a short lowercase-hyphenated name for the work, like `add-a-login-page`.
 

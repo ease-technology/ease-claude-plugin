@@ -31,7 +31,17 @@ def test_every_skill_has_name_and_description():
 
 def test_autopilot_skill_names_its_rules():
     text = (SKILLS / "autopilot" / "SKILL.md").read_text()
-    for term in ("jev-opinion", "--by autopilot", "ASK JUAN"):
+    for term in (
+        "jev-opinion",
+        "--by autopilot",
+        "ASK JUAN",
+        "CLAUDE_CODE_SESSION_ID",
+        "cache_read_input_tokens",
+        "200,000",
+        "Order: handed off",
+        "Handoff: <absolute path>",
+        "Continue from <path>",
+    ):
         assert term in text, term
 
 
