@@ -31,7 +31,7 @@ cd <workspace> && claude
 
 The ticket can be anything Claude can read: your own words, an issue number, an issue link, a ticket file, or what you just discussed. You never name the project; Claude works it out from your words and falls back to `default_project`. If a run stops, say "resume" or run `/ease:build resume`. Claude picks up the session's own run, or, in a new session, lists the runs that aren't done and takes the one you name.
 
-Each session drives its own run by its run id, so several sessions can work at once: tickets and plans side by side, and builds in different repos. Two builds can't share a repo, because a build works in your normal checkout. Approving a plan for a repo that another run is building in fails with "busy with run …", and you approve again once that run is done.
+Each session drives its own run by its run id, so several sessions can work at once: tickets and plans side by side, and builds in different repos. A plain `approve` builds in your normal checkout, so approving a plan for a repo that another run is building in fails with "busy with run …", and a repo with local changes fails with the uncommitted-changes error. Answer `approve worktree` instead to build in its own git worktree at `<workspace>/.ease-context/worktrees/<repo>-<run slug>`, branched from the branch your checkout is on, or from that run's base when your checkout is on a run's branch. Its PR goes into that base. A worktree has no dependencies or ignored files such as `.env`, so the worker sets them up there. The worktree is removed when the run is done or cancelled, and the branch is kept. A worktree with uncommitted changes, or one from an escalated run, is kept, and the summary names it.
 
 ## Tickets
 
@@ -111,6 +111,8 @@ The pilot wakes a background session with a message using `env -i HOME=… PATH=
 
 The watcher also wakes the pilot when a heavy entry appears in a decisions file. On every wake the pilot weighs the process trees of the sessions it manages and the Mac as a whole, by judgment and with no thresholds. When a managed session is too heavy, the pilot asks it to slow down: it stops the session, waits 10 seconds and resumes it with a concrete lighter way to do the work, so the session is never left paused. It tells you in one line, and also in one line when the load comes from something it cannot act on. Otherwise it sends nothing about resources. "How's the computer?" gets a one-line answer. New workers still start by `max_workers` only.
 
+When another live session may use the same repo, the pilot adds "build in a worktree" to a worker's goal, and it holds a PR comments order until that order's repo is free.
+
 Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN is one yes-or-no question, a notification is one line, and you say "more" to get the details. When a wake finds nothing new, the pilot sends nothing, not even after restarting its watcher. News, such as a worker that started, ended or was restarted or an order that is done, comes once, and each ASK JUAN comes once, as one push and one question. Open ones stay in "how's it going?".
 
 To start it, run `/ease:pilot` in a `~/ease` session in auto mode; that window becomes the pilot. In any other mode it answers in one line that the pilot needs auto mode, and starts nothing. When this window or another one is already the pilot, it answers in one line that the pilot is already running, and starts nothing. The first time, it creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json` and the workers' settings file. Then the pilot starts its watcher, its 10-minute backstop loop and `caffeinate`, which keeps the Mac awake. Remote Control stays off until you type `/rc`; then you can reach the pilot from the Claude app. Keep the Mac plugged in with the lid open: closing the lid still puts it to sleep. `/ease:pilot stop`, typed in the pilot window, stops it in place: the watcher, the loop and `caffeinate` end, the window stays open, and the workers keep running until they end. Closing the window stops the pilot.
@@ -160,7 +162,7 @@ The code rule is simple. If the checks pass and the review passes, the task is a
 
 A ticket can touch several repos. The plan splits it into tasks, each in one repo, and at the end you get one PR per repo that changed. Each PR goes into the branch that repo had checked out when you approved the plan, so check out `develop` (or whatever you merge into) first.
 
-The work happens on a new branch in your normal checkouts. Claude names it the way the project's `context.md` says, for example a Linear issue's `gitBranchName`, and when it says nothing the branch is a slug of the ticket title, like `add-a-login-page`. Before you approve, commit or stash any local changes in those repos.
+The work happens on a new branch in your normal checkouts. Claude names it the way the project's `context.md` says, for example a Linear issue's `gitBranchName`, and when it says nothing the branch is a slug of the ticket title, like `add-a-login-page`. Before you approve, commit or stash any local changes in those repos. A run you approve with `approve worktree` works in its own worktree instead, so local changes in your checkout don't block it.
 
 ## Jev
 
