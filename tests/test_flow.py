@@ -401,6 +401,44 @@ def test_approve_worktree_builds_in_a_worktree(ws):  # AC1
     assert git_out(tree, "log", "-1", "--format=%s") == "Task in app"
 
 
+def test_a_worktree_runs_checks_and_commits_in_the_worktree(ws):  # AC7
+    write_project(ws, "demo", {"app": {"path": "app", "checks": "touch checked.txt && test -f ok.txt"}})
+    start_run(ws)
+    send(ws, "approve worktree")
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+
+    (tree / "ok.txt").write_text("done")  # what the worker does
+    send(ws, "Built it.")
+    assert newest(ws).checks_ok is True
+    assert (tree / "checked.txt").exists()
+    assert not (ws / "app" / "checked.txt").exists()
+    assert git_out(tree, "log", "-1", "--format=%s", "add-a-thing") == "Task in app"
+    assert "checked.txt" in git_out(tree, "show", "--name-only", "--format=", "add-a-thing")
+    assert branch_of(ws / "app") == "main"
+    assert git_out(ws / "app", "status", "--porcelain") == ""
+
+
+def test_a_worktree_run_prompts_name_the_worktree(ws):  # AC8
+    start_run(ws)
+    send(ws, "approve worktree")
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+
+    ask(ws)
+    worker = last_prompt(ws)
+    assert f"Repo: {tree}" in worker
+    assert "`node_modules`" in worker and "`.env`" in worker
+    assert f"Repo: {ws / 'app'}\n" not in worker
+
+    (tree / "ok.txt").write_text("done")
+    send(ws, "Built it.")
+    ask(ws)
+    reviewer = last_prompt(ws)
+    assert f"Repo: {tree}\n" in reviewer
+    assert f"`git -C {tree} diff " in reviewer
+    assert str(ws / "app") + " " not in reviewer
+    assert f"Repo: {ws / 'app'}\n" not in reviewer
+
+
 def test_a_dirty_checkout_blocks_only_a_plain_approve(ws):  # AC2
     start_run(ws)
     (ws / "app" / "unsaved.txt").write_text("work in progress")

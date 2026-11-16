@@ -406,6 +406,14 @@ def worker_prompt(state: State, project: Project) -> str:
         f"Ticket: {state.ticket_title}",
         f"Task {state.task + 1}/{len(state.tasks)}: {task.title}", "",
         f"Repo: {repo.path}", "",
+    ]
+    if task.repo in state.worktrees:  # a fresh checkout has no ignored files, so the checks may lack what they need
+        lines += [
+            f"This repo is a fresh git worktree on branch {state.branch}. Before the checks run, set up the "
+            "dependencies and ignored files they need, like `node_modules` and `.env` "
+            "(`git worktree list` shows the checkout to copy them from).", "",
+        ]
+    lines += [
         "Steps:", *[f"- {step}" for step in task.steps], "",
         f"Done when: {task.done_when}", "",
     ]
