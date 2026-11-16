@@ -96,9 +96,13 @@ An engine error, an escalated task, a dirty tree or a failed check: fix it yours
 1. **<The decision.>** <Why.> Jev: <choice> <confidence>, <choice> <confidence>, <rounds> round(s). Undo: <how>.
 2. **ASK JUAN: <the exact action>.** <Why it waits.> Run: `<the exact command>`, or click <the exact place>.
 3. **contested: <the decision taken>.** Mine: <one line>. Jev: <one line>. Undo: <how>.
+4. **heavy: started <command>.** <What it is: a test suite and its worker count, a container, a dev server or a long build.>
+5. **heavy: stopped <command>.**
 ```
 
 Each entry gives the decision in bold, why, Jev's picks and confidences with the rounds taken (or "Jev: no answer"), and how to undo it. ASK JUAN entries start with **ASK JUAN** and give the exact command or click. Contested entries say **contested**; an important contested one is an ASK JUAN entry with each side in one line.
+
+Each time you start or stop heavy work, meaning a test suite (with its worker count), a container, a dev server or a long build, append a heavy entry that names the command and says started or stopped. A heavy entry is append-only and numbered like every other entry, and it carries no Jev line and no Undo. Autopilot does not clean up or throttle heavy work on its own.
 
 ## Ending
 

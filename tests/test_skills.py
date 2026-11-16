@@ -41,6 +41,8 @@ def test_autopilot_skill_names_its_rules():
         "Order: handed off",
         "Handoff: <absolute path>",
         "Continue from <path>",
+        "**heavy: started <command>",
+        "**heavy: stopped <command>",
     ):
         assert term in text, term
 
