@@ -374,6 +374,226 @@ def test_a_finished_pr_comments_run_on_the_branch_blocks_nothing(ws):
     assert branch_of(ws / "app") == "add-a-thing"
 
 
+def git_out(path, *args):
+    done = subprocess.run(["git", *args], cwd=path, capture_output=True, text=True, check=True)
+    return done.stdout.strip()
+
+
+def test_approve_worktree_builds_in_a_worktree(ws):  # AC1
+    start_run(ws)
+    send(ws, "approve worktree")
+
+    state = newest(ws)
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+    assert state.worktrees == {"app": str(tree)}
+    assert state.bases == {"app": "main"}
+    assert state.step == "build"
+    assert branch_of(tree) == "add-a-thing"
+    assert branch_of(ws / "app") == "main"
+    assert git_out(ws / "app", "status", "--porcelain") == ""
+    assert state.plan_log[-1].answer == "approve"
+
+    ask(ws)
+    assert f"Repo: {tree}" in last_prompt(ws)  # the worker builds in the worktree
+    (tree / "ok.txt").write_text("done")
+    send(ws, "Built it.")
+    assert newest(ws).checks_ok is True
+    assert git_out(tree, "log", "-1", "--format=%s") == "Task in app"
+
+
+def test_a_worktree_runs_checks_and_commits_in_the_worktree(ws):  # AC7
+    write_project(ws, "demo", {"app": {"path": "app", "checks": "touch checked.txt && test -f ok.txt"}})
+    start_run(ws)
+    send(ws, "approve worktree")
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+
+    (tree / "ok.txt").write_text("done")  # what the worker does
+    send(ws, "Built it.")
+    assert newest(ws).checks_ok is True
+    assert (tree / "checked.txt").exists()
+    assert not (ws / "app" / "checked.txt").exists()
+    assert git_out(tree, "log", "-1", "--format=%s", "add-a-thing") == "Task in app"
+    assert "checked.txt" in git_out(tree, "show", "--name-only", "--format=", "add-a-thing")
+    assert branch_of(ws / "app") == "main"
+    assert git_out(ws / "app", "status", "--porcelain") == ""
+
+
+def test_a_worktree_run_prompts_name_the_worktree(ws):  # AC8
+    start_run(ws)
+    send(ws, "approve worktree")
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+
+    ask(ws)
+    worker = last_prompt(ws)
+    assert f"Repo: {tree}" in worker
+    assert "`node_modules`" in worker and "`.env`" in worker
+    assert f"Repo: {ws / 'app'}\n" not in worker
+
+    (tree / "ok.txt").write_text("done")
+    send(ws, "Built it.")
+    ask(ws)
+    reviewer = last_prompt(ws)
+    assert f"Repo: {tree}\n" in reviewer
+    assert f"`git -C {tree} diff " in reviewer
+    assert str(ws / "app") + " " not in reviewer
+    assert f"Repo: {ws / 'app'}\n" not in reviewer
+
+
+def test_a_dirty_checkout_blocks_only_a_plain_approve(ws):  # AC2
+    start_run(ws)
+    (ws / "app" / "unsaved.txt").write_text("work in progress")
+
+    with pytest.raises(EaseError, match="uncommitted changes.*`approve worktree`"):
+        send(ws, "approve")
+    send(ws, "approve worktree")
+    assert newest(ws).step == "build"
+    assert (ws / "app" / "unsaved.txt").exists()
+
+
+def test_a_worktree_run_next_to_a_busy_checkout_starts_from_its_base(ws):  # AC3
+    start_building(ws)
+    first = newest(ws).run_id
+    main_head = git_out(ws / "app", "rev-parse", "main")
+    flow.start(ws, None, "Fix the bug")
+    send(ws, plan_report("app"))
+
+    send(ws, "approve worktree")
+    second = newest(ws)
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-fix-the-bug"
+    assert second.bases == {"app": "main"}
+    assert git_out(tree, "rev-parse", "HEAD") == main_head
+    assert branch_of(ws / "app") == "add-a-thing"  # the first run keeps its checkout
+
+    flow.start(ws, None, "Third thing")
+    send(ws, plan_report("app"))
+    with pytest.raises(EaseError, match=f"is busy with run {first}.*`approve worktree`"):
+        send(ws, "approve")
+
+
+def test_a_worktree_starts_from_the_checked_out_branch(ws):  # AC4, the base
+    subprocess.run(["git", "switch", "-c", "develop"], cwd=ws / "app", check=True, capture_output=True)
+    start_run(ws)
+    send(ws, "approve worktree")
+    assert newest(ws).bases == {"app": "develop"}
+
+
+def test_a_detached_head_blocks_a_worktree_too(ws):  # AC5
+    start_run(ws)
+    subprocess.run(["git", "checkout", "--detach"], cwd=ws / "app", check=True, capture_output=True)
+
+    with pytest.raises(EaseError, match="is on a detached HEAD") as error:
+        send(ws, "approve worktree")
+    assert "approve worktree" not in str(error.value)
+    assert not (ws / CONTEXT_DIR / "worktrees").exists()
+    assert git_out(ws / "app", "branch", "--list", "add-a-thing") == ""
+    assert newest(ws).step == "approve"
+
+
+def test_a_failed_worktree_records_nothing(ws):  # AC6
+    subprocess.run(["git", "branch", "add-a-thing"], cwd=ws / "app", check=True)
+    start_run(ws)
+
+    with pytest.raises(EaseError, match="already exists"):
+        send(ws, "approve worktree")
+    state = newest(ws)
+    assert state.worktrees == {}
+    assert state.bases == {}
+    assert state.step == "approve"
+
+
+def test_a_second_session_builds_in_a_worktree_that_is_removed_when_done(ws):  # AC7, AC9
+    start_building(ws)  # run A, approved plainly
+    first = newest(ws)
+    assert branch_of(ws / "app") == "add-a-thing"
+    flow.start(ws, None, "Fix the bug")
+    send(ws, plan_report("app"))
+
+    send(ws, "approve worktree")  # run B
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-fix-the-bug"
+    assert newest(ws).bases == {"app": "main"} == first.bases
+    (tree / "ok.txt").write_text("done")  # what the worker does
+    send(ws, "Built it.")
+    assert newest(ws).checks_ok is True
+    assert git_out(tree, "log", "-1", "--format=%s", "fix-the-bug") == "Task in app"
+    assert branch_of(ws / "app") == "add-a-thing"
+    assert not (ws / "app" / "ok.txt").exists()
+
+    send(ws, PASS)
+    state = newest(ws)
+    assert state.outcome == "done"
+    assert state.worktrees == {}
+    assert not tree.exists()
+    assert str(tree) not in git_out(ws / "app", "worktree", "list")
+    assert git_out(ws / "app", "branch", "--list", "fix-the-bug") != ""
+    assert branch_of(ws / "app") == "add-a-thing"
+    assert "Worktree kept" not in ask(ws)["summary"]
+
+
+def test_a_worktree_with_changes_is_kept_and_named(ws):  # AC9
+    start_run(ws)
+    send(ws, "approve worktree")
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+    (tree / "ok.txt").write_text("done")
+    send(ws, "Built it.")
+    (tree / "notes.txt").write_text("left after the last commit")
+
+    send(ws, PASS)
+    state = newest(ws)
+    assert state.outcome == "done"
+    assert state.worktrees == {"app": str(tree)}
+    assert (tree / "notes.txt").exists()
+    assert f"Worktree kept: {tree}" in ask(ws)["summary"]
+
+
+def test_an_escalated_run_keeps_its_worktree(ws):  # AC10
+    start_run(ws)
+    send(ws, "approve worktree")
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+    for _ in range(3):  # the worker writes nothing, so the checks fail
+        send(ws, "Built it.")
+        send(ws, PASS)
+
+    assert newest(ws).outcome == "escalated"
+    assert tree.exists()
+    assert f"Worktree kept: {tree}" in ask(ws)["summary"]
+
+
+def test_cancel_removes_a_worktree_left_by_a_failed_approve(ws):
+    git_repo(ws / "api")
+    subprocess.run(["git", "branch", "add-a-thing"], cwd=ws / "api", check=True)
+    write_project(ws, "demo", {
+        "app": {"path": "app", "checks": "true"},
+        "api": {"path": "api", "checks": "true"},
+    })
+    start_run(ws, repos=("app", "api"))
+    with pytest.raises(EaseError, match="already exists"):
+        send(ws, "approve worktree")
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+    assert newest(ws).worktrees == {"app": str(tree)}
+
+    send(ws, "cancel")
+    assert newest(ws).worktrees == {}
+    assert not tree.exists()
+
+
+def test_a_worktree_pr_targets_the_main_checkouts_branch(ws, tmp_path_factory, scripted_gh):  # AC4, the PR
+    remote = tmp_path_factory.mktemp("remote")
+    subprocess.run(["git", "init", "--bare"], cwd=remote, check=True, capture_output=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=ws / "app", check=True, capture_output=True)
+    subprocess.run(["git", "switch", "-c", "develop"], cwd=ws / "app", check=True, capture_output=True)
+    scripted_gh.answer({"match": "pr create", "stdout": "https://github.com/me/app/pull/9\n"})
+
+    start_run(ws)
+    send(ws, "approve worktree")
+    (ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing" / "ok.txt").write_text("done")
+    send(ws, "Built it.")
+    send(ws, PASS)
+
+    [create] = [call for call in scripted_gh.calls() if call[:2] == ["pr", "create"]]
+    assert create[create.index("--base") + 1] == "develop"
+    assert newest(ws).prs == ["app: https://github.com/me/app/pull/9"]
+
+
 def test_reviewer_fail_needs_a_finding(ws):
     start_building(ws)
     send(ws, "Built it.")

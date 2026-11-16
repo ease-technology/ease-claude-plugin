@@ -19,7 +19,7 @@ The engine command is `python3 "<skill base dir>/../../bin/ease-engine"`, run fr
 3. `<slug>` is a short slug of the order, like `add-login-page`.
 4. Read `.ease-context/handoffs/<slug>-decisions.md` if it exists. Its decisions stand, and its numbering goes on.
 5. List the open runs: `runs`, `ticket runs` and `pr-comments runs`. Resume each run that belongs to this order, by its title or ticket, with the skill that owns it.
-6. Otherwise start the work the order needs with the ease skills: `/ease:ticket` to turn it into a ticket, `/ease:build` to build a ticket, `/ease:pr-comments` to work through a PR's review threads.
+6. Otherwise start the work the order needs with the ease skills: `/ease:ticket` to turn it into a ticket, `/ease:build` to build a ticket, `/ease:pr-comments` to work through a PR's review threads. When the goal says to build in a worktree, answer the plan of `/ease:build` with `approve worktree`.
 
 Check the [context size](#context-size) at the end of Start, before any work.
 

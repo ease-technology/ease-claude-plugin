@@ -99,6 +99,17 @@ def switch_to_branch(cwd, branch: str) -> str:
     return base
 
 
+def add_worktree(cwd, path: str, branch: str, base: str) -> None:
+    """Create `branch` from `base`, checked out in a new worktree at `path`. A failure raises EaseError."""
+    git(cwd, "worktree", "add", "-b", branch, path, base)
+
+
+def remove_worktree(cwd, path: str) -> bool:
+    """Remove the worktree at `path`. Git refuses when it has changes, so that worktree is kept and we return False."""
+    code, _ = run(["git", "worktree", "remove", path], cwd)
+    return code == 0
+
+
 def commit_all(cwd, message: str) -> None:
     """Commit every change. Does nothing if there is nothing to commit."""
     git(cwd, "add", "-A")

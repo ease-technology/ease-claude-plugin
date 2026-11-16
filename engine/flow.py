@@ -5,11 +5,12 @@ from pathlib import Path
 from engine import jev
 from engine.models import Decision, Project, Repo, State, Task, TicketState, Verdict
 from engine.shell import (
-    commit_all, commits_ahead, current_branch, git, has_remote, head,
-    is_dirty, open_pr, run_checks, switch_to_branch,
+    add_worktree, commit_all, commits_ahead, current_branch, git, has_remote, head,
+    is_dirty, open_pr, remove_worktree, run_checks, switch_to_branch,
 )
 from engine.workspace import (
-    EaseError, build_runs, load_config, load_project, new_state, pr_runs, project_and_mode, save_state, state_dir,
+    CONTEXT_DIR, EaseError, build_runs, load_config, load_project, new_state, pr_runs, project_and_mode, save_state,
+    slugify, state_dir,
 )
 
 PLAN_SHAPE = """```json
@@ -18,6 +19,7 @@ PLAN_SHAPE = """```json
 REVIEW_SHAPE = """```json
 {"verdict": "pass or fail", "findings": ["file: what's wrong, what to do"]}
 ```"""
+WORKTREE_HINT = " Or answer `approve worktree` to build in a worktree instead."
 
 
 # ---------- start ----------
@@ -119,13 +121,17 @@ def reply_plan(ws, state: State, project: Project, text: str) -> dict:
 
 
 def reply_approve(ws, state: State, project: Project, text: str, by: str) -> dict:
-    """The user's answer to the plan: approve, cancel, or change notes. It is logged next to Jev's score."""
+    """The user's answer to the plan: approve, approve worktree, cancel, or change notes.
+    It is logged next to Jev's score."""
     answer = text.strip().strip(".!").lower()
+    approved = answer in ("approve", "approve worktree")
+    in_worktree = answer == "approve worktree"  # build in a worktree, so the main checkout is left alone
 
     if answer == "cancel":
         state.step = "done"
         state.outcome = "cancelled"
-    elif answer != "approve":  # anything else is change notes; the plan stays, so the planner sees it
+        drop_worktrees(state, project)
+    elif not approved:  # anything else is change notes; the plan stays, so the planner sees it
         state.notes = text.strip()
         state.step = "plan"
     else:
@@ -134,36 +140,66 @@ def reply_approve(ws, state: State, project: Project, text: str, by: str) -> dic
         old_branches = {run.branch for run in runs}
         others = [run for run in runs if run.run_id != state.run_id] + pr_runs(ws)
         busy = {run.branch: run for run in others if run.step != "done"}
+        hint = "" if in_worktree else WORKTREE_HINT
+        bases = {}  # every repo's base, worked out before anything is created
         for repo in repos:
             path = project.repos[repo].path
             if not (Path(path) / ".git").exists():
                 raise EaseError(f"{path} is not the top folder of a git repo")
-            if is_dirty(path):
-                raise EaseError(f"{path} has uncommitted changes. Commit or stash them, then approve again.")
+            if not in_worktree and is_dirty(path):
+                raise EaseError(f"{path} has uncommitted changes. Commit or stash them, then approve again.{hint}")
             branch = current_branch(path)
-            if branch in busy:  # another run is working here
+            if not in_worktree and branch in busy:  # another run is working here
                 other = busy[branch]
                 raise EaseError(
                     f"{path} is busy with run {other.run_id} ({other.ticket_title}). Approve again once that "
-                    "run is done, or, if you dropped it, check out the branch you want the work based on."
+                    f"run is done, or, if you dropped it, check out the branch you want the work based on.{hint}"
                 )
-            if branch == "HEAD" or branch in old_branches:  # a run's branch, or no branch at all
-                where = "a detached HEAD" if branch == "HEAD" else branch
-                raise EaseError(
-                    f"{path} is on {where}. Check out the branch you want the work based on (like develop), "
-                    "then approve again."
-                )
+            if branch == "HEAD":
+                raise EaseError(on_message(path, "a detached HEAD"))
+            if branch in old_branches:  # a run's branch: a worktree starts from that run's base
+                base = run_base(runs, state, repo, branch) if in_worktree else None
+                if base is None:
+                    raise EaseError(on_message(path, branch) + hint)
+                branch = base
+            bases[repo] = branch
         for repo in repos:
-            if repo not in state.bases:
-                state.bases[repo] = switch_to_branch(project.repos[repo].path, state.branch)
-                save_state(ws, state)  # remember the base now, in case a later repo fails
+            if repo in state.bases:
+                continue
+            main = project.repos[repo].path
+            if in_worktree:
+                path = ws / CONTEXT_DIR / "worktrees" / f"{repo}-{slugify(state.ticket_title)}"
+                add_worktree(main, str(path), state.branch, bases[repo])
+                state.bases[repo] = bases[repo]
+                state.worktrees[repo] = str(path)
+            else:
+                state.bases[repo] = switch_to_branch(main, state.branch)
+            save_state(ws, state)  # remember the base now, in case a later repo fails
         state.task = 0
         state.attempt = 1
-        state.task_start = head(project.repos[state.tasks[0].repo].path)
+        state.task_start = head(repo_path(state, project, state.tasks[0].repo))
         state.step = "build"
-    verdict = answer if answer in ("approve", "cancel") else "change"  # after the checks: a refused approve isn't logged
+    verdict = "approve" if approved else answer if answer == "cancel" else "change"  # a refused approve isn't logged
     state.plan_log.append(Verdict(state.plan_score, state.plan_confidence, verdict, by))
     return {"ok": True}
+
+
+def on_message(path: str, where: str) -> str:
+    """The refusal for a repo on a detached HEAD or on a run's branch."""
+    return f"{path} is on {where}. Check out the branch you want the work based on (like develop), then approve again."
+
+
+def run_base(runs: list[State], state: State, repo: str, branch: str) -> str | None:
+    """The base of the newest other build run on `branch` that recorded one for `repo`, else None."""
+    for run in reversed(runs):  # newest first
+        if run.run_id != state.run_id and run.branch == branch and repo in run.bases:
+            return run.bases[repo]
+    return None
+
+
+def repo_path(state: State, project: Project, repo: str) -> str:
+    """Where the run works on `repo`: its worktree, else the main checkout."""
+    return state.worktrees.get(repo, project.repos[repo].path)
 
 
 def reply_build(state: State, project: Project) -> dict:
@@ -191,7 +227,7 @@ def reply_review(ws, state: State, project: Project, text: str) -> dict:
             state.task = reviewed
             state.attempt = 1
             state.problems = []
-            state.task_start = head(project.repos[state.tasks[reviewed].repo].path)
+            state.task_start = head(repo_path(state, project, state.tasks[reviewed].repo))
             state.step = "build"
         else:
             finish(state, project)
@@ -261,7 +297,7 @@ def finish(state: State, project: Project) -> None:
     titles = "\n".join(f"- {task.title}" for task in state.tasks)
     pr_body = f"{state.plan_summary}\n\nTasks:\n{titles}"
     for repo, base in state.bases.items():
-        path = project.repos[repo].path
+        path = repo_path(state, project, repo)
         if commits_ahead(path, base, state.branch) == 0:
             continue
         if not has_remote(path):
@@ -274,6 +310,14 @@ def finish(state: State, project: Project) -> None:
             state.prs.append(f"{repo}: PR failed: {error}")
     state.step = "done"
     state.outcome = "done"
+    drop_worktrees(state, project)
+
+
+def drop_worktrees(state: State, project: Project) -> None:
+    """Remove the run's worktrees. Git keeps one with changes, so it stays in state.worktrees. Branches stay."""
+    for repo, path in list(state.worktrees.items()):
+        if remove_worktree(project.repos[repo].path, path):
+            del state.worktrees[repo]
 
 
 class BadReportJson(EaseError, ValueError):
@@ -299,9 +343,10 @@ def parse_report(text: str) -> dict:
 
 
 def current_task(state: State, project: Project) -> tuple[Task, Repo]:
-    """The task being worked on, and its repo."""
+    """The task being worked on, and its repo (at its worktree path in a worktree run)."""
     task = state.tasks[state.task]
-    return task, project.repos[task.repo]
+    repo = project.repos[task.repo]
+    return task, Repo(repo_path(state, project, task.repo), repo.checks)
 
 
 # ---------- text for the user ----------
@@ -336,6 +381,7 @@ def summary(state: State) -> str:
     if state.bases:  # the branch exists only once the plan was approved
         lines.append(f"Branch: {state.branch}")
     lines += state.prs
+    lines += [f"Worktree kept: {path}" for path in state.worktrees.values()]
     if state.outcome == "escalated":
         lines += ["Problems:", *[f"- {p}" for p in state.problems]]
     lines.append(f"Tasks done: {done}/{len(state.tasks)}")
@@ -370,6 +416,14 @@ def worker_prompt(state: State, project: Project) -> str:
         f"Ticket: {state.ticket_title}",
         f"Task {state.task + 1}/{len(state.tasks)}: {task.title}", "",
         f"Repo: {repo.path}", "",
+    ]
+    if task.repo in state.worktrees:  # a fresh checkout has no ignored files, so the checks may lack what they need
+        lines += [
+            f"This repo is a fresh git worktree on branch {state.branch}. Before the checks run, set up the "
+            "dependencies and ignored files they need, like `node_modules` and `.env` "
+            "(`git worktree list` shows the checkout to copy them from).", "",
+        ]
+    lines += [
         "Steps:", *[f"- {step}" for step in task.steps], "",
         f"Done when: {task.done_when}", "",
     ]

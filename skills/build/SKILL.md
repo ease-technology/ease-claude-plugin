@@ -47,9 +47,9 @@ EASE_REPLY
 
 After a reviewer's reply, print one line: `Task N: <decision> (code rule: <code>, Jev: <jev> <jev_confidence>)`, or `(code rule: <code>, Jev: no answer)` when `jev` is null.
 
-**ask_user.** Show `message` as it is, then ask with AskUserQuestion, with two options: **Approve** and **Cancel**. To change the plan, the user types the changes into its free-text "Other" answer. Reply `approve`, `cancel`, or those changes in the user's own words, using the same heredoc. This is the only question you ask during a run.
+**ask_user.** Show `message` as it is, then ask with AskUserQuestion, with two options: **Approve** and **Cancel**. To change the plan, the user types the changes into its free-text "Other" answer. Reply `approve`, `cancel`, or those changes in the user's own words, using the same heredoc. When the user or the goal asks to build in a worktree, reply `approve worktree` instead of `approve`. This is the only question you ask during a run.
 
-Under /ease:autopilot, don't call AskUserQuestion. Approve, change or cancel the plan by the autopilot question rule, taking the engine's Jev plan score shown in `message` as part of Jev's opinion. Log the decision, and reply with `reply <run_id> --by autopilot`, using the same heredoc.
+Under /ease:autopilot, don't call AskUserQuestion. Approve, change or cancel the plan by the autopilot question rule, taking the engine's Jev plan score shown in `message` as part of Jev's opinion. Log the decision, and reply with `reply <run_id> --by autopilot`, using the same heredoc. When the goal asks to build in a worktree, reply `approve worktree` instead of `approve`.
 
 **done.** Show `summary` and stop.
 

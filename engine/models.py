@@ -59,6 +59,7 @@ class State:
     plan_confidence: float | None = None
     plan_log: list[Verdict] = field(default_factory=list)  # every plan you answered
     bases: dict[str, str] = field(default_factory=dict)  # repo -> the branch we started from (the PR base)
+    worktrees: dict[str, str] = field(default_factory=dict)  # repo -> its worktree path, only for a worktree run
     task: int = 0                      # index of the current task
     attempt: int = 1
     task_start: str = ""               # commit where the current task started
