@@ -75,5 +75,7 @@ def test_pilot_skill_names_its_rules():
         "/ease:pilot run",
         "caffeinate.pid",
         "counts as order `<slug>`'s worker",
+        "size unknown",
+        "cache_read_input_tokens",
     ):
         assert term in text, term
