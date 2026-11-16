@@ -40,8 +40,10 @@ def run_guard(repo, event, *extra):
     return subprocess.run(args, input=json.dumps(event), capture_output=True, text=True)
 
 
-def guard(repo, command, cwd=None, own_prefix=None, approvals=None):
+def guard(repo, command, cwd=None, own_prefix=None, approvals=None, allow_pilot=False):
     extra = []
+    if allow_pilot:
+        extra += ["--allow-pilot-commands"]
     if own_prefix:
         extra += ["--own-prefix", own_prefix]
     if approvals:
@@ -247,3 +249,74 @@ def test_malformed_approvals_file_approves_nothing_and_is_left_alone(repo, tmp_p
     assert lines[0].startswith("guard:")
     assert any(line.startswith("ASK JUAN:") for line in lines[1:])
     assert approvals.read_text() == content
+
+
+PILOT_ALLOW = {
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "pilot stop, wake or worker start",
+    }
+}
+CLEAN_ENV = 'env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME"'
+WAKE = f'cd /tmp && {CLEAN_ENV} CLAUDE_CONFIG_DIR=~/.claude-ease claude --bg --resume 0b9f3c2e-1d4a-4f6b-9c8d-7e5a3b2c1d0f "go on && stop"'
+WORKER_FLAGS = "--permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json"
+
+
+def worker_start(name="pilot-add-login", flags=WORKER_FLAGS, env=CLEAN_ENV, prompt='"/ease:autopilot add login"'):
+    return f"cd ~/join-souk && {env} CLAUDE_CONFIG_DIR=~/.claude-souk claude --bg -n {name} {flags} {prompt}"
+
+
+PILOT_COMMANDS = [
+    "claude stop abc",
+    "CLAUDE_CONFIG_DIR=~/.claude-souk claude stop abc",
+    WAKE,
+    worker_start(),
+    worker_start("pilot-add-login-2", prompt='"/ease:autopilot add login\nContinue from /x/handoffs/add-login.md"'),
+]
+
+
+@pytest.mark.parametrize("command", PILOT_COMMANDS)
+def test_allows_pilot_commands_with_the_flag(repo, command):
+    result = guard(repo, command, allow_pilot=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == PILOT_ALLOW
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("command", PILOT_COMMANDS)
+def test_pilot_commands_get_no_allow_without_the_flag(repo, command):
+    result = guard(repo, command)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        worker_start("add-login"),
+        worker_start(flags=WORKER_FLAGS + " --remote-control x"),
+        worker_start(flags=WORKER_FLAGS.replace("~/ease/.ease-context/pilot/worker-settings.json", "/tmp/s.json")),
+        worker_start(env=""),
+        worker_start(flags=WORKER_FLAGS + " --dangerously-skip-permissions"),
+        WAKE.replace("--resume", "--fork-session --resume"),
+        "claude stop a b",
+        "claude stop a; rm -rf x",
+        "cd /tmp",
+        "claude stop abc>/tmp/x",
+        WAKE.replace('"go on && stop"', '"$(rm -rf x)"'),
+        WAKE.replace('"go on && stop"', "--dangerously-skip-permissions"),
+        'claude stop "abc',
+    ],
+)
+def test_no_allow_for_other_commands(repo, command):
+    result = guard(repo, command, allow_pilot=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+def test_pilot_flag_still_blocks_ask_juan_actions(repo):
+    result = guard(repo, "git push origin main", allow_pilot=True)
+    assert result.returncode == 2
+    assert result.stderr.startswith("ASK JUAN:")
+    assert result.stdout == ""

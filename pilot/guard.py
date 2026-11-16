@@ -4,6 +4,9 @@
 Reads the hook JSON on stdin. A blocked call exits 2 with one `ASK JUAN:` line on stderr;
 anything else exits 0. Any error inside the guard also exits 2 with one `ASK JUAN: guard error` line,
 except a command that cannot be parsed, which is let through with a note. Standard library only.
+
+With --allow-pilot-commands, a Bash call that is not blocked and is only the pilot's `claude stop`,
+wake or worker start (see pilot_command) gets an explicit allow decision as JSON on stdout.
 """
 import argparse
 import fnmatch
@@ -22,6 +25,19 @@ GH_API_VALUE_OPTIONS = {
     "-t", "--template", "--hostname", "--cache", "-p", "--preview",
 }
 PUSH_VALUE_OPTIONS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+CLEAN_ENV = ["env", "-i", "HOME=$HOME", "PATH=$PATH", "USER=$USER", "LOGNAME=$LOGNAME"]
+WORKER_FLAGS = [
+    "--permission-mode", "auto", "--disallowedTools", "AskUserQuestion",
+    "--settings", "~/ease/.ease-context/pilot/worker-settings.json",
+]
+PILOT_NAME = re.compile(r"pilot-[A-Za-z0-9-]+")
+PILOT_ALLOW = {
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "pilot stop, wake or worker start",
+    }
+}
 
 
 def split_commands(command):
@@ -57,6 +73,55 @@ def split_commands(command):
         i += 1
     pieces.append("".join(current))
     return [piece for piece in pieces if piece.strip()]
+
+
+def plain(token):
+    """A filled-in value the shell passes on as is: no expansion, and not taken for a flag."""
+    return bool(token) and not token.startswith("-") and not set("$`") & set(token)
+
+
+def config_dir(token):
+    return token.startswith("CLAUDE_CONFIG_DIR=") and plain(token.split("=", 1)[1])
+
+
+def pilot_piece(tokens):
+    """Which pilot form these tokens are: "cd", "stop", "wake", "worker", or None."""
+    if len(tokens) == 2 and tokens[0] == "cd" and plain(tokens[1]):
+        return "cd"
+    if tokens and config_dir(tokens[0]):
+        tokens = tokens[1:]
+    if len(tokens) == 3 and tokens[:2] == ["claude", "stop"] and plain(tokens[2]):
+        return "stop"
+    if tokens[:6] != CLEAN_ENV or len(tokens) < 7 or not config_dir(tokens[6]):
+        return None
+    rest = tokens[7:]
+    if len(rest) == 5 and rest[:3] == ["claude", "--bg", "--resume"] and plain(rest[3]) and plain(rest[4]):
+        return "wake"
+    if (
+        len(rest) == 11
+        and rest[:3] == ["claude", "--bg", "-n"]
+        and PILOT_NAME.fullmatch(rest[3])
+        and rest[4:10] == WORKER_FLAGS
+        and plain(rest[10])
+    ):
+        return "worker"
+    return None
+
+
+def pilot_command(command):
+    """True when the command is only the pilot's `claude stop`, wake or worker start, with optional `cd <dir>` pieces.
+
+    Unquoted < > ( ) are split off as their own tokens, so a redirect or subshell never matches a form.
+    """
+    forms = []
+    for piece in split_commands(command):
+        lexer = shlex.shlex(piece, posix=True, punctuation_chars="<>()")
+        lexer.whitespace_split, lexer.commenters = True, ""
+        try:
+            forms.append(pilot_piece(list(lexer)))
+        except ValueError:
+            return False
+    return bool(forms) and None not in forms and any(form != "cd" for form in forms)
 
 
 class Unparseable(Exception):
@@ -257,6 +322,7 @@ def main():
     parser.add_argument("--config", required=True)
     parser.add_argument("--approvals")
     parser.add_argument("--own-prefix")
+    parser.add_argument("--allow-pilot-commands", action="store_true")
     options = parser.parse_args()
 
     try:
@@ -276,7 +342,11 @@ def main():
         except Unparseable as error:
             print(f"guard: could not parse the command ({error}), letting it through", file=sys.stderr)
             return 0
-        if not reason or (options.approvals and use_approval(options.approvals, command)):
+        if not reason:
+            if options.allow_pilot_commands and pilot_command(command):
+                print(json.dumps(PILOT_ALLOW))
+            return 0
+        if options.approvals and use_approval(options.approvals, command):
             return 0
         return ask_juan(reason)
     except Exception as error:
