@@ -14,13 +14,37 @@ The engine command is `python3 "<skill base dir>/../../bin/ease-engine"`, run fr
 
 ## Start
 
-1. Find the workspace: the nearest folder, from the current one upward, that contains `.ease-context/`. Never read `.ease-context/config.json`.
-2. `<slug>` is a short slug of the order, like `add-login-page`.
-3. Read `.ease-context/handoffs/<slug>-decisions.md` if it exists. Its decisions stand, and its numbering goes on.
-4. List the open runs: `runs`, `ticket runs` and `pr-comments runs`. Resume each run that belongs to this order, by its title or ticket, with the skill that owns it.
-5. Otherwise start the work the order needs with the ease skills: `/ease:ticket` to turn it into a ticket, `/ease:build` to build a ticket, `/ease:pr-comments` to work through a PR's review threads.
+1. When the prompt has a `Continue from <path>` line, an earlier autopilot session handed off. Read that file in full, past any tool's default length limit, and every path under its Documents. The order is the prompt without that line. Take `<slug>` from the decisions file the handoff lists, so the decisions file stays the same. Then go on to the open runs below without waiting for Juan.
+2. Find the workspace: the nearest folder, from the current one upward, that contains `.ease-context/`. Never read `.ease-context/config.json`.
+3. `<slug>` is a short slug of the order, like `add-login-page`.
+4. Read `.ease-context/handoffs/<slug>-decisions.md` if it exists. Its decisions stand, and its numbering goes on.
+5. List the open runs: `runs`, `ticket runs` and `pr-comments runs`. Resume each run that belongs to this order, by its title or ticket, with the skill that owns it.
+6. Otherwise start the work the order needs with the ease skills: `/ease:ticket` to turn it into a ticket, `/ease:build` to build a ticket, `/ease:pr-comments` to work through a PR's review threads.
+
+Check the [context size](#context-size) at the end of Start, before any work.
 
 When a skill's `ask_user` step comes up, do not call AskUserQuestion. Decide by the question rule, log the decision, and reply with `reply <run_id> --by autopilot` (`ticket reply` and `pr-comments reply` take the same flag).
+
+## Context size
+
+The size is `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` from `message.usage` on the last assistant line of this session's own transcript, `<config_dir>/projects/*/$CLAUDE_CODE_SESSION_ID.jsonl`, where `<config_dir>` is `$CLAUDE_CONFIG_DIR`, or `~/.claude` when it is unset. This prints it:
+
+```bash
+python3 -c 'import glob, json, os
+d = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+u = {}
+for p in glob.glob(os.path.join(d, "projects", "*", os.environ["CLAUDE_CODE_SESSION_ID"] + ".jsonl")):
+    for line in open(p):
+        try: e = json.loads(line)
+        except ValueError: continue
+        if e.get("type") == "assistant" and (e.get("message") or {}).get("usage") and e["message"].get("model") != "<synthetic>": u = e["message"]["usage"]
+print(sum(u.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")))'
+```
+
+Check it at the end of Start, and after each step: each engine `next` or `reply`, and each skill that ends. Heavy means 200,000 tokens or more, for every model.
+
+- **Under 200,000 tokens:** go on, and do not hand off.
+- **200,000 or more:** finish the current step, run `/ease:handoff`, and end with the `handed off` ending below. Use only the path from its `Handoff written:` line, never its prompt.
 
 ## The question rule
 
@@ -84,4 +108,13 @@ When the order is done, or nothing more can go ahead without Juan, run `/ease:ha
 Order: done | waiting on Juan | stopped
 ASK JUAN: <number of ASK JUAN entries>
 Decisions: <path to the decisions file>
+```
+
+When the context is heavy, your last message is four lines instead. A new autopilot session goes on from it with the order and a `Continue from <absolute path>` line:
+
+```
+Order: handed off
+ASK JUAN: <n>
+Decisions: <path>
+Handoff: <absolute path>
 ```

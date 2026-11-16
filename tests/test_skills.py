@@ -31,7 +31,17 @@ def test_every_skill_has_name_and_description():
 
 def test_autopilot_skill_names_its_rules():
     text = (SKILLS / "autopilot" / "SKILL.md").read_text()
-    for term in ("jev-opinion", "--by autopilot", "ASK JUAN"):
+    for term in (
+        "jev-opinion",
+        "--by autopilot",
+        "ASK JUAN",
+        "CLAUDE_CODE_SESSION_ID",
+        "cache_read_input_tokens",
+        "200,000",
+        "Order: handed off",
+        "Handoff: <absolute path>",
+        "Continue from <path>",
+    ):
         assert term in text, term
 
 
@@ -65,5 +75,16 @@ def test_pilot_skill_names_its_rules():
         "/ease:pilot run",
         "caffeinate.pid",
         "counts as order `<slug>`'s worker",
+        "size unknown",
+        "cache_read_input_tokens",
+        "Order: handed off",
+        "Continue from <path>",
+        "pilot-<slug>-<n>",
+        "<original name>-<n>",
+        "does not count toward the 3-restart limit",
+        "within 60 seconds",
+        "Pilot moved to a fresh session. Open pilot in the Claude app.",
+        "Old pilot: <",
+        "handoffs/pilot.md",
     ):
         assert term in text, term
