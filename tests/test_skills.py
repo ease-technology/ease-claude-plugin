@@ -3,6 +3,10 @@ import pathlib
 import re
 
 SKILLS = pathlib.Path(__file__).parent.parent / "skills"
+GUARD_HOOK = (
+    'command: python3 "${CLAUDE_PLUGIN_ROOT}/pilot/guard.py" --config ~/ease/.ease-context/pilot/workspaces.json'
+    " --approvals ~/ease/.ease-context/pilot/approvals.json --allow-pilot-commands"
+)
 
 
 def frontmatter(path):
@@ -75,9 +79,7 @@ def test_pilot_skill_names_its_rules():
         "/ease:autopilot",
         "jev-opinion",
         "ASK JUAN",
-        "-n pilot --remote-control pilot",
         "/ease:pilot stop",
-        "/ease:pilot run",
         "caffeinate.pid",
         "counts as order `<slug>`'s worker",
         "size unknown",
@@ -88,8 +90,6 @@ def test_pilot_skill_names_its_rules():
         "<original name>-<n>",
         "does not count toward the 3-restart limit",
         "within 60 seconds",
-        "Pilot moved to a fresh session. Open pilot in the Claude app.",
-        "Old pilot: <",
         "handoffs/pilot.md",
         "grep -H '^[0-9]*\\. \\*\\*heavy: '",
         ".ease-context/handoffs/*-decisions.md",
@@ -112,8 +112,29 @@ def test_pilot_skill_names_its_rules():
         "Starts still follow `max_workers` only.",
         "How's the computer?",
         "11. Measure your own size",
+        GUARD_HOOK,
+        "--allow-pilot-commands",
+        "pilot.session",
+        "permissionMode",
+        "Type /rc to reach it from your phone",
+        "The pilot is already running",
+        "Pilot is full. Type /ease:pilot stop, then /clear, then /ease:pilot.",
+        'env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<config_dir> claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json',
+        "claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json",
+        'env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<dir> claude --bg -n <original name>-<n>',
+        "ignoring --session-id",
     ):
         assert term in text, term
+
+
+def test_pilot_skill_runs_in_the_foreground_without_remote_control():
+    text = (SKILLS / "pilot" / "SKILL.md").read_text()
+    for term in ("--remote-control", "/ease:pilot run", "pilot-settings.json"):
+        assert term not in text, term
+    lines = [line for line in text.splitlines() if "claude --bg -n" in line]
+    assert lines
+    for line in lines:
+        assert "env -i HOME=" in line.split("claude --bg -n")[0], line
 
 
 def test_skills_name_no_resource_threshold():

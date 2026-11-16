@@ -23,8 +23,8 @@ def test_workspaces_example_lists_the_three_workspaces_and_config_keys():
     assert config["prod_markers"] and config["blocked_tools"]
 
 
-@pytest.mark.parametrize("name, approvals", [("worker", False), ("pilot", True)])
-def test_settings_template_renders_a_guard_hook(name, approvals):
+@pytest.mark.parametrize("name", ["worker"])
+def test_settings_template_renders_a_guard_hook(name):
     guard = "/opt/ease/pilot/guard.py"
     text = (PILOT / f"{name}-settings.template.json").read_text().replace("__GUARD_PY__", guard)
     [entry] = json.loads(text)["hooks"]["PreToolUse"]
@@ -32,12 +32,9 @@ def test_settings_template_renders_a_guard_hook(name, approvals):
     assert entry["matcher"] == "*"
     assert hook["type"] == "command"
     assert hook["command"].startswith(f"python3 {guard} --config ")
-    assert ("--approvals" in hook["command"]) is approvals
+    assert "--approvals" not in hook["command"]
 
 
-def test_pilot_settings_allow_waking_a_session_and_stopping_one():
-    allow = json.loads((PILOT / "pilot-settings.template.json").read_text())["permissions"]["allow"]
-    assert "Bash(claude stop *)" in allow
-    assert "Bash(CLAUDE_CONFIG_DIR=* claude --bg -n *)" in allow
-    assert any("env -i" in rule and "claude --bg --resume" in rule for rule in allow)
+def test_pilot_settings_template_is_gone_and_worker_settings_grant_nothing():
+    assert not (PILOT / "pilot-settings.template.json").exists()
     assert "permissions" not in json.loads((PILOT / "worker-settings.template.json").read_text())
