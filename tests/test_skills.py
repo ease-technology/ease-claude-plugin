@@ -83,5 +83,8 @@ def test_pilot_skill_names_its_rules():
         "<original name>-<n>",
         "does not count toward the 3-restart limit",
         "within 60 seconds",
+        "Pilot moved to a fresh session. Open pilot in the Claude app.",
+        "Old pilot: <",
+        "handoffs/pilot.md",
     ):
         assert term in text, term
