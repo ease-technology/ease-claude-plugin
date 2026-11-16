@@ -77,5 +77,11 @@ def test_pilot_skill_names_its_rules():
         "counts as order `<slug>`'s worker",
         "size unknown",
         "cache_read_input_tokens",
+        "Order: handed off",
+        "Continue from <path>",
+        "pilot-<slug>-<n>",
+        "<original name>-<n>",
+        "does not count toward the 3-restart limit",
+        "within 60 seconds",
     ):
         assert term in text, term

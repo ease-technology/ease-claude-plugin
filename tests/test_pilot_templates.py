@@ -38,5 +38,6 @@ def test_settings_template_renders_a_guard_hook(name, approvals):
 def test_pilot_settings_allow_waking_a_session_and_stopping_one():
     allow = json.loads((PILOT / "pilot-settings.template.json").read_text())["permissions"]["allow"]
     assert "Bash(claude stop *)" in allow
+    assert "Bash(CLAUDE_CONFIG_DIR=* claude --bg -n *)" in allow
     assert any("env -i" in rule and "claude --bg --resume" in rule for rule in allow)
     assert "permissions" not in json.loads((PILOT / "worker-settings.template.json").read_text())
