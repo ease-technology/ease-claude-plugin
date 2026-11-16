@@ -65,6 +65,8 @@ def test_pilot_skill_names_its_rules():
         "with the session's name and id",
         "## Talking to Juan",
         "at most 3 short lines",
+        "A wake that finds nothing new sends nothing",
+        "is never sent again on a later wake",
         "Show sessions",
         "--disallowedTools AskUserQuestion",
         "/ease:autopilot",
