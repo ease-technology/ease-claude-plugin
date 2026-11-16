@@ -14,7 +14,7 @@ The engine command is `python3 "<skill base dir>/../../bin/ease-engine"`, run fr
 
 ## Start
 
-1. When the prompt has a `Continue from <path>` line, an earlier autopilot session handed off. Read that file in full, past any tool's default length limit, and every path under its Documents. The order is the prompt without that line, so `<slug>` and the decisions file stay the same. Then go on to the open runs below without waiting for Juan.
+1. When the prompt has a `Continue from <path>` line, an earlier autopilot session handed off. Read that file in full, past any tool's default length limit, and every path under its Documents. The order is the prompt without that line. Take `<slug>` from the decisions file the handoff lists, so the decisions file stays the same. Then go on to the open runs below without waiting for Juan.
 2. Find the workspace: the nearest folder, from the current one upward, that contains `.ease-context/`. Never read `.ease-context/config.json`.
 3. `<slug>` is a short slug of the order, like `add-login-page`.
 4. Read `.ease-context/handoffs/<slug>-decisions.md` if it exists. Its decisions stand, and its numbering goes on.
@@ -37,7 +37,7 @@ for p in glob.glob(os.path.join(d, "projects", "*", os.environ["CLAUDE_CODE_SESS
     for line in open(p):
         try: e = json.loads(line)
         except ValueError: continue
-        if e.get("type") == "assistant" and (e.get("message") or {}).get("usage"): u = e["message"]["usage"]
+        if e.get("type") == "assistant" and (e.get("message") or {}).get("usage") and e["message"].get("model") != "<synthetic>": u = e["message"]["usage"]
 print(sum(u.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")))'
 ```
 
