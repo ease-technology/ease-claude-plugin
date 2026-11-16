@@ -123,6 +123,9 @@ def test_pilot_skill_names_its_rules():
         "claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json",
         'env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<dir> claude --bg -n <original name>-<n>',
         "ignoring --session-id",
+        "add \"build in a worktree\" to the worker's goal",
+        "Do the same when you can't tell.",
+        "When an order is to answer a PR's review comments and another live session may be using that repo, hold the order until the repo is free.",
     ):
         assert term in text, term
 
@@ -135,6 +138,12 @@ def test_pilot_skill_runs_in_the_foreground_without_remote_control():
     assert lines
     for line in lines:
         assert "env -i HOME=" in line.split("claude --bg -n")[0], line
+
+
+def test_skills_use_worktrees_instead_of_a_workspace_limit():
+    assert "at most one per workspace" not in (SKILLS / "pilot" / "SKILL.md").read_text()
+    for name in ("build", "autopilot"):
+        assert "`approve worktree`" in (SKILLS / name / "SKILL.md").read_text(), name
 
 
 def test_skills_name_no_resource_threshold():
