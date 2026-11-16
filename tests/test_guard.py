@@ -314,6 +314,7 @@ def test_pilot_commands_get_no_allow_without_the_flag(repo, command):
         "claude stop {a,b}",
         "claude stop [ab]",
         "claude stop #abc",
+        "CLAUDE_CONFIG_DIR=/a " + WAKE.split("&& ", 1)[1],
     ],
 )
 def test_no_allow_for_other_commands(repo, command):

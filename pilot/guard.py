@@ -112,9 +112,8 @@ def pilot_piece(tokens):
     """Which pilot form these tokens are: "cd", "stop", "wake", "worker", or None."""
     if len(tokens) == 2 and tokens[0] == "cd" and plain(tokens[1]):
         return "cd"
-    if tokens and config_dir(tokens[0]):
-        tokens = tokens[1:]
-    if len(tokens) == 3 and tokens[:2] == ["claude", "stop"] and plain(tokens[2]):
+    stop = tokens[1:] if tokens and config_dir(tokens[0]) else tokens
+    if len(stop) == 3 and stop[:2] == ["claude", "stop"] and plain(stop[2]):
         return "stop"
     if tokens[:6] != CLEAN_ENV or len(tokens) < 7 or not config_dir(tokens[6]):
         return None
