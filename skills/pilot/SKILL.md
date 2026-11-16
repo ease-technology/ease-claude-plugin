@@ -158,7 +158,7 @@ cd <cwd> && env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLA
 
 Juan reads you on his phone, so every message is at most 3 short lines, with no tables, headings or code blocks. An ASK JUAN message is one yes-or-no question with the one fact needed to decide, like 'Merge PR 2600 into dev? CI green, 0 contested decisions.' A push notification is one line. Details come only when Juan replies "more" or asks for them.
 
-A wake that finds nothing new sends nothing: end the turn with no text and no PushNotification. Restarting the watcher, re-reading state, a worker still busy, or starts still held back by a usage limit is not news. News is a worker that started, ended, finished, was restarted or handed off, or an order that is done; say it once, when it happens, in at most 3 short lines. Each ASK JUAN entry is sent once and is never sent again on a later wake; open entries still come first in "How's it going?". Answers to Juan's own messages are unchanged, and `decisions.md` is still logged on every wake.
+A wake that finds nothing new sends nothing: end the turn with no text and no PushNotification. Restarting the watcher, re-reading state, a worker still busy, or starts still held back by a usage limit is not news. News is a worker that started, ended, finished, was restarted or handed off, or an order that is done; say it once, when it happens, in at most 3 short lines. Each ASK JUAN entry is sent once and is never sent again on a later wake; open entries still come first in "How's it going?". Answers to Juan's own messages are unchanged, and silence does not change what is logged in `decisions.md`.
 
 After each reply to Juan, measure your own size and follow [Your own handoff](#your-own-handoff).
 
