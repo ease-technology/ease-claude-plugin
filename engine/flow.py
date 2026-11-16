@@ -6,7 +6,7 @@ from engine import jev
 from engine.models import Decision, Project, Repo, State, Task, TicketState, Verdict
 from engine.shell import (
     add_worktree, commit_all, commits_ahead, current_branch, git, has_remote, head,
-    is_dirty, open_pr, run_checks, switch_to_branch,
+    is_dirty, open_pr, remove_worktree, run_checks, switch_to_branch,
 )
 from engine.workspace import (
     CONTEXT_DIR, EaseError, build_runs, load_config, load_project, new_state, pr_runs, project_and_mode, save_state,
@@ -130,6 +130,7 @@ def reply_approve(ws, state: State, project: Project, text: str, by: str) -> dic
     if answer == "cancel":
         state.step = "done"
         state.outcome = "cancelled"
+        drop_worktrees(state, project)
     elif not approved:  # anything else is change notes; the plan stays, so the planner sees it
         state.notes = text.strip()
         state.step = "plan"
@@ -296,7 +297,7 @@ def finish(state: State, project: Project) -> None:
     titles = "\n".join(f"- {task.title}" for task in state.tasks)
     pr_body = f"{state.plan_summary}\n\nTasks:\n{titles}"
     for repo, base in state.bases.items():
-        path = project.repos[repo].path
+        path = repo_path(state, project, repo)
         if commits_ahead(path, base, state.branch) == 0:
             continue
         if not has_remote(path):
@@ -309,6 +310,14 @@ def finish(state: State, project: Project) -> None:
             state.prs.append(f"{repo}: PR failed: {error}")
     state.step = "done"
     state.outcome = "done"
+    drop_worktrees(state, project)
+
+
+def drop_worktrees(state: State, project: Project) -> None:
+    """Remove the run's worktrees. Git keeps one with changes, so it stays in state.worktrees. Branches stay."""
+    for repo, path in list(state.worktrees.items()):
+        if remove_worktree(project.repos[repo].path, path):
+            del state.worktrees[repo]
 
 
 class BadReportJson(EaseError, ValueError):
@@ -372,6 +381,7 @@ def summary(state: State) -> str:
     if state.bases:  # the branch exists only once the plan was approved
         lines.append(f"Branch: {state.branch}")
     lines += state.prs
+    lines += [f"Worktree kept: {path}" for path in state.worktrees.values()]
     if state.outcome == "escalated":
         lines += ["Problems:", *[f"- {p}" for p in state.problems]]
     lines.append(f"Tasks done: {done}/{len(state.tasks)}")
