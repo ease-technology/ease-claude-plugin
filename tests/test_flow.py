@@ -374,6 +374,95 @@ def test_a_finished_pr_comments_run_on_the_branch_blocks_nothing(ws):
     assert branch_of(ws / "app") == "add-a-thing"
 
 
+def git_out(path, *args):
+    done = subprocess.run(["git", *args], cwd=path, capture_output=True, text=True, check=True)
+    return done.stdout.strip()
+
+
+def test_approve_worktree_builds_in_a_worktree(ws):  # AC1
+    start_run(ws)
+    send(ws, "approve worktree")
+
+    state = newest(ws)
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-add-a-thing"
+    assert state.worktrees == {"app": str(tree)}
+    assert state.bases == {"app": "main"}
+    assert state.step == "build"
+    assert branch_of(tree) == "add-a-thing"
+    assert branch_of(ws / "app") == "main"
+    assert git_out(ws / "app", "status", "--porcelain") == ""
+    assert state.plan_log[-1].answer == "approve"
+
+    ask(ws)
+    assert f"Repo: {tree}" in last_prompt(ws)  # the worker builds in the worktree
+    (tree / "ok.txt").write_text("done")
+    send(ws, "Built it.")
+    assert newest(ws).checks_ok is True
+    assert git_out(tree, "log", "-1", "--format=%s") == "Task in app"
+
+
+def test_a_dirty_checkout_blocks_only_a_plain_approve(ws):  # AC2
+    start_run(ws)
+    (ws / "app" / "unsaved.txt").write_text("work in progress")
+
+    with pytest.raises(EaseError, match="uncommitted changes.*`approve worktree`"):
+        send(ws, "approve")
+    send(ws, "approve worktree")
+    assert newest(ws).step == "build"
+    assert (ws / "app" / "unsaved.txt").exists()
+
+
+def test_a_worktree_run_next_to_a_busy_checkout_starts_from_its_base(ws):  # AC3
+    start_building(ws)
+    first = newest(ws).run_id
+    main_head = git_out(ws / "app", "rev-parse", "main")
+    flow.start(ws, None, "Fix the bug")
+    send(ws, plan_report("app"))
+
+    send(ws, "approve worktree")
+    second = newest(ws)
+    tree = ws / CONTEXT_DIR / "worktrees" / "app-fix-the-bug"
+    assert second.bases == {"app": "main"}
+    assert git_out(tree, "rev-parse", "HEAD") == main_head
+    assert branch_of(ws / "app") == "add-a-thing"  # the first run keeps its checkout
+
+    flow.start(ws, None, "Third thing")
+    send(ws, plan_report("app"))
+    with pytest.raises(EaseError, match=f"is busy with run {first}.*`approve worktree`"):
+        send(ws, "approve")
+
+
+def test_a_worktree_starts_from_the_checked_out_branch(ws):  # AC4, the base
+    subprocess.run(["git", "switch", "-c", "develop"], cwd=ws / "app", check=True, capture_output=True)
+    start_run(ws)
+    send(ws, "approve worktree")
+    assert newest(ws).bases == {"app": "develop"}
+
+
+def test_a_detached_head_blocks_a_worktree_too(ws):  # AC5
+    start_run(ws)
+    subprocess.run(["git", "checkout", "--detach"], cwd=ws / "app", check=True, capture_output=True)
+
+    with pytest.raises(EaseError, match="is on a detached HEAD") as error:
+        send(ws, "approve worktree")
+    assert "approve worktree" not in str(error.value)
+    assert not (ws / CONTEXT_DIR / "worktrees").exists()
+    assert git_out(ws / "app", "branch", "--list", "add-a-thing") == ""
+    assert newest(ws).step == "approve"
+
+
+def test_a_failed_worktree_records_nothing(ws):  # AC6
+    subprocess.run(["git", "branch", "add-a-thing"], cwd=ws / "app", check=True)
+    start_run(ws)
+
+    with pytest.raises(EaseError, match="already exists"):
+        send(ws, "approve worktree")
+    state = newest(ws)
+    assert state.worktrees == {}
+    assert state.bases == {}
+    assert state.step == "approve"
+
+
 def test_reviewer_fail_needs_a_finding(ws):
     start_building(ws)
     send(ws, "Built it.")
