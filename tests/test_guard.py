@@ -307,12 +307,25 @@ def test_pilot_commands_get_no_allow_without_the_flag(repo, command):
         WAKE.replace('"go on && stop"', '"$(rm -rf x)"'),
         WAKE.replace('"go on && stop"', "--dangerously-skip-permissions"),
         'claude stop "abc',
+        worker_start(prompt="{go,--dangerously-skip-permissions}"),
+        worker_start(prompt="go*"),
+        WAKE.replace('"go on && stop"', "{go,--dangerously-skip-permissions}"),
+        WAKE.replace('"go on && stop"', "go?"),
+        "claude stop {a,b}",
+        "claude stop [ab]",
+        "claude stop #abc",
     ],
 )
 def test_no_allow_for_other_commands(repo, command):
     result = guard(repo, command, allow_pilot=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
+
+
+@pytest.mark.parametrize("command", ["claude stop 'a*'", 'claude stop "{a,b}"', "claude stop a\\*"])
+def test_quoted_or_escaped_glob_characters_are_allowed(repo, command):
+    result = guard(repo, command, allow_pilot=True)
+    assert json.loads(result.stdout) == PILOT_ALLOW
 
 
 def test_pilot_flag_still_blocks_ask_juan_actions(repo):

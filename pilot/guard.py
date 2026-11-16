@@ -31,6 +31,7 @@ WORKER_FLAGS = [
     "--settings", "~/ease/.ease-context/pilot/worker-settings.json",
 ]
 PILOT_NAME = re.compile(r"pilot-[A-Za-z0-9-]+")
+SHELL_EXPANDED = set("{}*?[#")
 PILOT_ALLOW = {
     "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -75,6 +76,29 @@ def split_commands(command):
     return [piece for piece in pieces if piece.strip()]
 
 
+def unquoted_expansion(piece):
+    """Whether the raw piece has an unquoted brace, glob or comment character.
+
+    shlex keeps such a token whole, but bash and zsh can turn it into several arguments or drop it.
+    """
+    quote, i = None, 0
+    while i < len(piece):
+        char = piece[i]
+        if quote:
+            if char == "\\" and quote == '"':
+                i += 1
+            elif char == quote:
+                quote = None
+        elif char == "\\":
+            i += 1
+        elif char in "'\"":
+            quote = char
+        elif char in SHELL_EXPANDED:
+            return True
+        i += 1
+    return False
+
+
 def plain(token):
     """A filled-in value the shell passes on as is: no expansion, and not taken for a flag."""
     return bool(token) and not token.startswith("-") and not set("$`") & set(token)
@@ -111,10 +135,13 @@ def pilot_piece(tokens):
 def pilot_command(command):
     """True when the command is only the pilot's `claude stop`, wake or worker start, with optional `cd <dir>` pieces.
 
-    Unquoted < > ( ) are split off as their own tokens, so a redirect or subshell never matches a form.
+    Unquoted < > ( ) are split off as their own tokens, so a redirect or subshell never matches a form,
+    and an unquoted { } * ? [ # refuses the whole command, since the shell would not pass it on as one argument.
     """
     forms = []
     for piece in split_commands(command):
+        if unquoted_expansion(piece):
+            return False
         lexer = shlex.shlex(piece, posix=True, punctuation_chars="<>()")
         lexer.whitespace_split, lexer.commenters = True, ""
         try:
