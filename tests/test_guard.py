@@ -259,12 +259,12 @@ PILOT_ALLOW = {
     }
 }
 CLEAN_ENV = 'env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME"'
-WAKE = f'cd /tmp && {CLEAN_ENV} CLAUDE_CONFIG_DIR=~/.claude-ease claude --bg --resume 0b9f3c2e-1d4a-4f6b-9c8d-7e5a3b2c1d0f "go on && stop"'
+WAKE = f'cd /tmp && {CLEAN_ENV} CLAUDE_CONFIG_DIR=/Users/j/.claude-ease claude --bg --resume 0b9f3c2e-1d4a-4f6b-9c8d-7e5a3b2c1d0f "go on && stop"'
 WORKER_FLAGS = "--permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json"
 
 
 def worker_start(name="pilot-add-login", flags=WORKER_FLAGS, env=CLEAN_ENV, prompt='"/ease:autopilot add login"'):
-    return f"cd ~/join-souk && {env} CLAUDE_CONFIG_DIR=~/.claude-souk claude --bg -n {name} {flags} {prompt}"
+    return f"cd ~/join-souk && {env} CLAUDE_CONFIG_DIR=/Users/j/.claude-souk claude --bg -n {name} {flags} {prompt}"
 
 
 PILOT_COMMANDS = [
@@ -315,6 +315,8 @@ def test_pilot_commands_get_no_allow_without_the_flag(repo, command):
         "claude stop [ab]",
         "claude stop #abc",
         "CLAUDE_CONFIG_DIR=/a " + WAKE.split("&& ", 1)[1],
+        WAKE.replace("CLAUDE_CONFIG_DIR=/Users/j/.claude-ease", "CLAUDE_CONFIG_DIR=~/.claude-ease"),
+        worker_start().replace("CLAUDE_CONFIG_DIR=/Users/j/.claude-souk", "CLAUDE_CONFIG_DIR=~/.claude-souk"),
     ],
 )
 def test_no_allow_for_other_commands(repo, command):

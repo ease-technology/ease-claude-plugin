@@ -117,6 +117,8 @@ def pilot_piece(tokens):
         return "stop"
     if tokens[:6] != CLEAN_ENV or len(tokens) < 7 or not config_dir(tokens[6]):
         return None
+    if not tokens[6].split("=", 1)[1].startswith("/"):
+        return None  # under env -i the shell leaves ~ unexpanded, so the config folder must be absolute
     rest = tokens[7:]
     if len(rest) == 5 and rest[:3] == ["claude", "--bg", "--resume"] and plain(rest[3]) and plain(rest[4]):
         return "wake"
