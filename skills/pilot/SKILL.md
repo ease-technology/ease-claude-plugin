@@ -56,19 +56,23 @@ When the pilot folder does not exist, create it with:
 
 ## Waking
 
-On start, also when you continue from an old pilot, run a watcher with the Monitor tool. It is shell only and costs no model tokens: every 60 seconds it reads `claude agents --json --all` for each config folder in `workspaces.json`, and prints one line whenever a `pilot-*` session or a handed-over session changes state. Each printed line wakes you.
+On start, also when you continue from an old pilot, run a watcher with the Monitor tool. It is shell only and costs no model tokens: every 60 seconds it reads `claude agents --json --all` for each config folder in `workspaces.json`, and prints one line whenever a `pilot-*` session or a handed-over session changes state. It also reads each workspace `path` from `workspaces.json`, and prints one line whenever a new heavy entry appears in that workspace's `.ease-context/handoffs/*-decisions.md`. Entries that already exist when the watcher starts are skipped. Each printed line wakes you.
 
 ```bash
 dirs=$(python3 -c 'import json, os; [print(os.path.expanduser(w["config_dir"])) for w in json.load(open(os.path.expanduser("~/ease/.ease-context/pilot/workspaces.json")))["workspaces"]]')
+paths=$(python3 -c 'import json, os; [print(os.path.expanduser(w["path"])) for w in json.load(open(os.path.expanduser("~/ease/.ease-context/pilot/workspaces.json")))["workspaces"]]')
 first=1; prev=""
 while true; do
-  now=$(for d in $dirs; do
+  now=$({ for d in $dirs; do
     CLAUDE_CONFIG_DIR="$d" claude agents --json --all 2>/dev/null | python3 -c 'import json, os, re, sys
 ids = set(re.findall(r"\(session ([0-9a-f-]{36})\)", open(os.path.expanduser("~/ease/.ease-context/pilot/orders.md")).read()))
 for s in json.load(sys.stdin):
     if (s.get("name") or "").startswith("pilot-") or s.get("sessionId") in ids:
         print(s.get("name"), s.get("id"), s.get("state") or s.get("status"))' 2>/dev/null
-  done | sort)
+  done
+  for p in $paths; do
+    grep -H '^[0-9]*\. \*\*heavy: ' "$p"/.ease-context/handoffs/*-decisions.md 2>/dev/null
+  done; } | sort)
   [ -z "$first" ] && comm -13 <(printf '%s\n' "$prev") <(printf '%s\n' "$now")
   first=""; prev=$now
   sleep 60

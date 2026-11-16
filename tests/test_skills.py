@@ -90,5 +90,8 @@ def test_pilot_skill_names_its_rules():
         "Pilot moved to a fresh session. Open pilot in the Claude app.",
         "Old pilot: <",
         "handoffs/pilot.md",
+        "grep -H '^[0-9]*\\. \\*\\*heavy: '",
+        ".ease-context/handoffs/*-decisions.md",
+        'w["path"]',
     ):
         assert term in text, term
