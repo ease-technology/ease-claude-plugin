@@ -129,7 +129,7 @@ def test_pilot_skill_names_its_rules():
         'env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<config_dir> claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json',
         "claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json",
         'env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<dir> claude --bg -n <original name>-<n>',
-        "ignoring --session-id",
+        "ignoring --session-id", "the shell does not expand `~` after `=` in an argument to `env`", "a session that is busy, idle or even done still counts as running",
         "add \"build in a worktree\" to the worker's goal",
         "Do the same when you can't tell.",
         "When an order is to answer a PR's review comments and another live session may be using that repo, hold the order until the repo is free.",

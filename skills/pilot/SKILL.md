@@ -154,7 +154,7 @@ Every wake, whether from a watcher exit, the backstop or Juan's message, first c
    cd <path> && env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<config_dir> claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json "/ease:autopilot <goal>"
    ```
 
-   `env -i` drops the Claude variables of your own foreground session; with them, `claude --bg` prints `--bg manages the session id; ignoring --session-id` and starts the session idle with the prompt dropped. The guard allows exactly this form, so never add or drop a flag.
+   `env -i` drops the Claude variables of your own foreground session; with them, `claude --bg` prints `--bg manages the session id; ignoring --session-id` and starts the session idle with the prompt dropped. The guard allows exactly this form, so never add or drop a flag. Write the config folder after `CLAUDE_CONFIG_DIR=` as an absolute path, with `~` spelled out as the home folder, like `/Users/<you>/.claude-souk`: the shell does not expand `~` after `=` in an argument to `env`, so `CLAUDE_CONFIG_DIR=~/.claude-souk` points the session at a new, empty folder named `~` in its working folder, where it is not logged in and the workspace is not trusted.
 
    `<path>` and `<config_dir>` come from the order's workspace in `workspaces.json`. Run at most one worker at a time, until Juan raises it in `orders.md` with a `max_workers: <n>` line. Start none while a usage-limit message from the last hour is in a worker's last message.
 
@@ -205,13 +205,13 @@ When Juan says "give back <session>", remove its line from `orders.md`, log it, 
 
 ## Sending a message
 
-The only way into a background session is to wake it with a message. If it is busy, run `claude stop <id>` first, because waking a running session starts a copy, and wait 10 seconds: the stop finishes after the command returns. Then run exactly:
+The only way into a background session is to wake it with a message. Unless `claude agents --json --all` shows it as stopped, run `claude stop <id>` first and wait 10 seconds: a session that is busy, idle or even done still counts as running, waking a running session starts a copy, and the stop finishes after the command returns. The wake keeps the session's saved options, such as its settings and guard. Then run exactly:
 
 ```bash
 cd <cwd> && env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" CLAUDE_CONFIG_DIR=<dir> claude --bg --resume <sessionId> "<message>"
 ```
 
-`<cwd>`, `<dir>` and `<sessionId>` are the session's own, and `<sessionId>` is the full id `claude agents --json` prints. Never add other flags. `env -i` drops the Claude variables your own session would pass on, and `USER` and `LOGNAME` are kept because the login needs them; without them the session and Claude's background service start "Not logged in". With the Claude variables, or with any flag, or with a short id, the CLI starts a copy under a new id and the copy never gets the message. The output must say `woke session <id>`. If it says `started a copy`, stop the copy, log it, and tell Juan in one line.
+`<cwd>`, `<dir>` and `<sessionId>` are the session's own, and `<sessionId>` is the full id `claude agents --json` prints. Never add other flags. `<dir>` is an absolute path, as in [step 8](#each-wake). `env -i` drops the Claude variables your own session would pass on, and `USER` and `LOGNAME` are kept because the login needs them; without them the session and Claude's background service start "Not logged in". With the Claude variables, or with any flag, or with a short id, the CLI starts a copy under a new id and the copy never gets the message. The output must say `woke session <id>`. If it says `started a copy`, stop the copy, log it, and tell Juan in one line.
 
 ## Talking to Juan
 
