@@ -41,10 +41,10 @@ for p in glob.glob(os.path.join(d, "projects", "*", os.environ["CLAUDE_CODE_SESS
 print(sum(u.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")))'
 ```
 
-Check it at the end of Start, and after each step: each engine `next` or `reply`, and each skill that ends. Heavy means 200,000 tokens or more, for every model.
+Check it at the end of Start, and after each step: each engine `next` or `reply`, and each skill that ends. Heavy means 350,000 tokens or more, for every model.
 
-- **Under 200,000 tokens:** go on, and do not hand off.
-- **200,000 or more:** finish the current step, run `/ease:handoff`, and end with the `handed off` ending below. Use only the path from its `Handoff written:` line, never its prompt.
+- **Under 350,000 tokens:** go on, and do not hand off.
+- **350,000 or more:** finish the current step, run `/ease:handoff`, and end with the `handed off` ending below. Use only the path from its `Handoff written:` line, never its prompt.
 
 ## The question rule
 
