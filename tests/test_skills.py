@@ -77,6 +77,7 @@ def test_pilot_skill_names_its_rules():
         "Ask one question at a time. While a question you sent is unanswered, send Juan nothing on your own",
         "not even \"nothing new\"",
         "never say what you are about to do",
+        "Write no text before or between tool calls in any wake either. When Claude Code then asks for a visible response, answer with only `·`.",
         "Show sessions",
         "--disallowedTools AskUserQuestion",
         "/ease:autopilot",
