@@ -166,3 +166,16 @@ def test_skills_name_no_resource_threshold():
         text = (SKILLS / name / "SKILL.md").read_text()
         match = number.search(text)
         assert not match, f"{name}: {match and match.group(0)}"
+
+
+def test_pilot_watcher_ignores_commented_orders():
+    skill = (SKILLS / "pilot" / "SKILL.md").read_text()
+    line = next(l for l in skill.splitlines() if l.startswith("ids = set(re.findall("))
+    pattern = re.search(r'r"(.+?)", open', line).group(1)
+    orders = (
+        "# Orders\n"
+        "- [live] souk: goal (session 11111111-1111-1111-1111-111111111111)\n"
+        "# done 2026-11-14: [old] proper: goal (session 22222222-2222-2222-2222-222222222222)\n"
+    )
+    assert set(re.findall(pattern, orders, re.M)) == {"11111111-1111-1111-1111-111111111111"}
+    assert "A line that starts with `#` is a done or paused order" in skill
