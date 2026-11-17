@@ -1,6 +1,6 @@
 {
   "name": "ease",
-  "version": "0.25.3",
+  "version": "0.25.4",
   "description": "Ticket → plan → tasks → reviewed branch or PR, with Jev judging every decision.",
   "author": { "name": "Juan Soto" }
 }
