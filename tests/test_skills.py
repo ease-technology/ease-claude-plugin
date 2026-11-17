@@ -123,6 +123,7 @@ def test_pilot_skill_names_its_rules():
         "--allow-pilot-commands",
         "pilot.session",
         "permissionMode",
+        "reads again once a second, for up to 10 seconds, before it prints `unknown`",
         "Type /rc to reach it from your phone",
         "The pilot is already running",
         "Pilot is full. Type /ease:pilot stop, then /clear, then /ease:pilot.",

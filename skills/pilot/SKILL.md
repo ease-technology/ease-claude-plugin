@@ -22,16 +22,19 @@ The pilot folder is `~/ease/.ease-context/pilot/`. Everything you keep lives the
 The session where Juan types `/ease:pilot` becomes the pilot, and stays the pilot until he types `/ease:pilot stop` or closes the window. The guard hook in this skill's frontmatter stays on in this window from then on: it blocks the ASK JUAN actions and lets `claude stop`, the wake from [Sending a message](#sending-a-message) and the worker start from step 8 of [Each wake](#each-wake) run without a prompt.
 
 - **`/ease:pilot`** (no words, or `start`) makes this session the pilot, in this order:
-  1. Read this session's permission mode, the `permissionMode` of the last `type: user` line that has one in your own transcript:
+  1. Read this session's permission mode, the `permissionMode` of the last `type: user` line that has one in your own transcript. The `/ease:pilot` line may not be saved yet when this runs, so the command reads again once a second, for up to 10 seconds, before it prints `unknown`:
 
      ```bash
-     python3 -c 'import glob, json, os
+     python3 -c 'import glob, json, os, time
      m = ""
-     for p in glob.glob(os.path.expanduser("~/.claude-ease/projects/*/" + os.environ["CLAUDE_CODE_SESSION_ID"] + ".jsonl")):
-         for line in open(p):
-             try: e = json.loads(line)
-             except ValueError: continue
-             if isinstance(e, dict) and e.get("type") == "user" and e.get("permissionMode"): m = e["permissionMode"]
+     for _ in range(10):
+         for p in glob.glob(os.path.expanduser("~/.claude-ease/projects/*/" + os.environ["CLAUDE_CODE_SESSION_ID"] + ".jsonl")):
+             for line in open(p):
+                 try: e = json.loads(line)
+                 except ValueError: continue
+                 if isinstance(e, dict) and e.get("type") == "user" and e.get("permissionMode"): m = e["permissionMode"]
+         if m: break
+         time.sleep(1)
      print(m or "unknown")'
      ```
 
