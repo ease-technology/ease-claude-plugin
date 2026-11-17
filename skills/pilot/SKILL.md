@@ -62,7 +62,7 @@ The session where Juan types `/ease:pilot` becomes the pilot, and stays the pilo
 
 When the pilot folder does not exist, create it with:
 
-- `orders.md`: one line per order, `- [<slug>] <workspace>: <goal>`. `<slug>` is a short slug of the goal, like `add-login-page`, and `<workspace>` is a `name` from `workspaces.json`.
+- `orders.md`: one line per order, `- [<slug>] <workspace>: <goal>`. `<slug>` is a short slug of the goal, like `add-login-page`, and `<workspace>` is a `name` from `workspaces.json`. A line that starts with `#` is a done or paused order: its session is no longer managed, so the watcher and every wake ignore it.
 - `decisions.md`: the pilot's decisions file, in the format of `/ease:autopilot`, titled `# Pilot`.
 - `approvals.json`: `[]`.
 - `workspaces.json`: a copy of `<skill base dir>/../../pilot/workspaces.example.json`.
@@ -93,7 +93,7 @@ ended=" done stopped blocked failed waiting "
 sessions() {
   for d in $dirs; do
     CLAUDE_CONFIG_DIR="$d" claude agents --json --all 2>/dev/null | python3 -c 'import json, os, re, sys
-ids = set(re.findall(r"\(session ([0-9a-f-]{36})\)", open(os.path.expanduser("~/ease/.ease-context/pilot/orders.md")).read()))
+ids = set(re.findall(r"^- .*\(session ([0-9a-f-]{36})\)", open(os.path.expanduser("~/ease/.ease-context/pilot/orders.md")).read(), re.M))
 for s in json.load(sys.stdin):
     if (s.get("name") or "").startswith("pilot-") or s.get("sessionId") in ids:
         print(s.get("id"), s.get("state") or s.get("status"), s.get("name"))' 2>/dev/null
