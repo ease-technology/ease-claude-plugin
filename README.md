@@ -81,6 +81,12 @@ Handoffs are kept in `.ease-context/handoffs/`. Add it to your workspace's `.git
 
 It uses no tools, runs only when you type it, and leaves later replies unchanged. When there is no earlier reply, it answers in one line that there is nothing to condense. When the last reply is already that short, it answers in one line that it is already short. When the session says nothing about a question or topic you gave, it says so in one line.
 
+## Say
+
+`/ease:say <transcript>` turns something you dictated into one clean prompt. Alone, it uses your previous message. It replies with the prompt, then lists the words it had to guess as `heard → used`, and waits. Reply "go" to have Claude act on the prompt, with any corrections you add.
+
+It uses no tools, runs only when you type it, and never names or runs an ease command. When there is nothing to clean, it answers in one line.
+
 ## Autopilot
 
 To hand a session a goal and walk away, run `/ease:autopilot <order>`, or say so in plain words, for example "take control, don't ask me, use Jev as the second opinion". The session works in your place through the ease skills and decides every question they would ask you.

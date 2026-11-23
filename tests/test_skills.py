@@ -141,6 +141,27 @@ def test_pilot_skill_names_its_rules():
         assert term in text, term
 
 
+def test_say_skill_names_its_rules():
+    path = SKILLS / "say" / "SKILL.md"
+    assert field(frontmatter(path), "disable-model-invocation") == "true"
+    assert field(frontmatter(path), "argument-hint")
+    text = path.read_text()
+    for term in (
+        "heard → used",
+        "Cloud Tools",
+        "Mac Whisperer",
+        "`/ease:`",
+        "nothing to clean",
+        "compaction",
+        "No tools",
+        "no tool calls",
+        "This message only",
+        "go",
+        "normal message",
+    ):
+        assert term in text, term
+
+
 def test_pilot_waking_names_no_monitor_and_no_ten_minutes():
     text = (SKILLS / "pilot" / "SKILL.md").read_text()
     waking = text[text.index("## Waking") : text.index("## Each wake")]
