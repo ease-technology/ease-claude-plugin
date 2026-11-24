@@ -7,6 +7,10 @@ GUARD_HOOK = (
     'command: python3 "${CLAUDE_PLUGIN_ROOT}/pilot/guard.py" --config ~/ease/.ease-context/pilot/workspaces.json'
     " --approvals ~/ease/.ease-context/pilot/approvals.json --allow-pilot-commands"
 )
+OUTBOX_HOOKS = [
+    f'command: python3 "${{CLAUDE_PLUGIN_ROOT}}/pilot/outbox.py" --dir ~/ease/.ease-context/pilot {check}'
+    for check in ("push-check", "stop-check")
+]
 
 
 def frontmatter(path):
@@ -48,13 +52,24 @@ def test_autopilot_skill_names_its_rules():
         "Continue from <path>",
         "**heavy: started <command>",
         "**heavy: stopped <command>",
+        "**answered: ASK JUAN <n>.**",
     ):
         assert term in text, term
+    decisions = text.split("## The decisions file")[1].split("\n## ")[0]
+    for term in (
+        "# Autopilot: <the order> (session <id>)",
+        "$CLAUDE_CODE_SESSION_ID",
+        "(session <id>, <id>)",
+    ):
+        assert term in decisions, term
 
 
 def test_pilot_skill_names_its_rules():
     path = SKILLS / "pilot" / "SKILL.md"
     assert field(frontmatter(path), "disable-model-invocation") == "true"
+    hooks = "\n".join(frontmatter(path))
+    for line in (GUARD_HOOK, *OUTBOX_HOOKS, '- matcher: "PushNotification"', "\n  Stop:\n"):
+        assert line in hooks, line
     text = path.read_text()
     for term in (
         "orders.md",
@@ -73,8 +88,23 @@ def test_pilot_skill_names_its_rules():
         "## Talking to Juan",
         "at most 3 short lines",
         "A wake that finds nothing new sends nothing",
-        "is never sent again on a later wake",
-        "Ask one question at a time. While a question you sent is unanswered, send Juan nothing on your own",
+        "2. Re-read `~/ease/.ease-context/pilot/instructions.md` and follow it. Every wake re-reads it",
+        "If it exists without `instructions.md`, copy `<skill base dir>/../../pilot/instructions.md` into it.",
+        "exactly the output of `outbox.py compose`",
+        "outbox.py add --kind decision --ref <file>#<n>",
+        "run `outbox.py drop <file>#<n>` for each `answered: ASK JUAN <n>` entry",
+        "Never add from a file whose title names no driven session.",
+        "add each ASK JUAN entry that has no matching `answered: ASK JUAN <n>` entry",
+        "`outbox.py drop --file <its decisions file>`",
+        "`outbox.py list` maps each number to its item",
+        "`outbox.py close 1 2`, and send no push",
+        "Tell me when <X> is done",
+        "outbox.py add --kind result",
+        "Every push is exactly the composed push",
+        "It is sent only when a new item joined the outbox",
+        "Closed items, finished work Juan did not ask about, worker starts and restarts and quiet wakes send no push.",
+        "These three lines are chat only, never a push.",
+        "Both hooks allow everything outside the pilot session",
         "not even \"nothing new\"",
         "never say what you are about to do",
         "Show sessions",
@@ -94,8 +124,20 @@ def test_pilot_skill_names_its_rules():
         "does not count toward the 3-restart limit",
         "within 60 seconds",
         "handoffs/pilot.md",
-        "grep -H '^[0-9]*\\. \\*\\*heavy: '",
-        "grep -H '^[0-9]*\\. \\*\\*ASK JUAN'",
+        'python3 "<skill base dir>/../../pilot/watcher.py" --dir ~/ease/.ease-context/pilot',
+        "mv ~/ease/.ease-context/pilot/inbox.txt ~/ease/.ease-context/pilot/inbox.taken 2>/dev/null && cat ~/ease/.ease-context/pilot/inbox.taken",
+        "News that comes during a busy wake lands in a new `inbox.txt` and ends the watcher, and the next wake handles it.",
+        "survive a watcher restart",
+        "A line that starts with `#` is a done or paused order",
+        "A new ASK JUAN, `heavy: started` or `answered: ASK JUAN` line",
+        "`heavy: stopped` is not news, and neither is any line in a file whose title names no driven session.",
+        "Never kill the watcher for this: its exit would wake you.",
+        "echo <sessionId> >> ~/ease/.ease-context/pilot/watcher.pause",
+        "rm -f ~/ease/.ease-context/pilot/watcher.pause",
+        "the `Run:` command of the entry at the item's ref, when it has one",
+        "first pause the watcher as [Waking](#waking) says",
+        "The watcher pause and the `started a copy` rule of Sending a message apply as is.",
+        "that move is from one ended state to another and is not news, so the watcher keeps running",
         "run_in_background",
         "watcher.pid",
         "kill -0",
@@ -103,7 +145,6 @@ def test_pilot_skill_names_its_rules():
         "Moves among busy, working and idle are not news, and neither is a move from one ended state to another, such as blocked to stopped after `claude stop`.",
         "each next wakeup is set to the 1-hour maximum",
         ".ease-context/handoffs/*-decisions.md",
-        'w["path"]',
         "**Weigh the load.**",
         "run `ps` on its process tree: `ps -A -o pid=,ppid=,rss=,%cpu=,command=`, walked from that pid",
         "Decide by judgment; no number triggers an action.",
@@ -123,6 +164,7 @@ def test_pilot_skill_names_its_rules():
         "How's the computer?",
         "11. Measure your own size",
         GUARD_HOOK,
+        *OUTBOX_HOOKS,
         "--allow-pilot-commands",
         "pilot.session",
         "permissionMode",
@@ -192,16 +234,3 @@ def test_skills_name_no_resource_threshold():
         text = (SKILLS / name / "SKILL.md").read_text()
         match = number.search(text)
         assert not match, f"{name}: {match and match.group(0)}"
-
-
-def test_pilot_watcher_ignores_commented_orders():
-    skill = (SKILLS / "pilot" / "SKILL.md").read_text()
-    line = next(l for l in skill.splitlines() if l.startswith("ids = set(re.findall("))
-    pattern = re.search(r'r"(.+?)", open', line).group(1)
-    orders = (
-        "# Orders\n"
-        "- [live] souk: goal (session 11111111-1111-1111-1111-111111111111)\n"
-        "# done 2026-11-14: [old] proper: goal (session 22222222-2222-2222-2222-222222222222)\n"
-    )
-    assert set(re.findall(pattern, orders, re.M)) == {"11111111-1111-1111-1111-111111111111"}
-    assert "A line that starts with `#` is a done or paused order" in skill
