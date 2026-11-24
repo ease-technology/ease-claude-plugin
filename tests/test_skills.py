@@ -102,8 +102,18 @@ def test_pilot_skill_names_its_rules():
         "does not count toward the 3-restart limit",
         "within 60 seconds",
         "handoffs/pilot.md",
-        "grep -H '^[0-9]*\\. \\*\\*heavy: '",
-        "grep -H '^[0-9]*\\. \\*\\*ASK JUAN'",
+        'python3 "<skill base dir>/../../pilot/watcher.py" --dir ~/ease/.ease-context/pilot',
+        "mv ~/ease/.ease-context/pilot/inbox.txt ~/ease/.ease-context/pilot/inbox.taken 2>/dev/null && cat ~/ease/.ease-context/pilot/inbox.taken",
+        "News that comes during a busy wake lands in a new `inbox.txt` and ends the watcher, and the next wake handles it.",
+        "survive a watcher restart",
+        "A line that starts with `#` is a done or paused order",
+        "A new ASK JUAN, `heavy: started` or `answered: ASK JUAN` line",
+        "`heavy: stopped` is not news, and neither is any line in a file whose title names no driven session.",
+        "kill the watcher with `kill \"$(cat ~/ease/.ease-context/pilot/watcher.pid)\"`, run `claude stop <id>`, wait 10 seconds, wake the session, then start the watcher again with `--accept <sessionId>`",
+        "--dir ~/ease/.ease-context/pilot --accept <sessionId>",
+        "first pause the watcher as [Waking](#waking) says",
+        "The watcher pause and the `started a copy` rule of Sending a message apply as is.",
+        "that move is from one ended state to another and is not news, so the watcher keeps running",
         "run_in_background",
         "watcher.pid",
         "kill -0",
@@ -111,7 +121,6 @@ def test_pilot_skill_names_its_rules():
         "Moves among busy, working and idle are not news, and neither is a move from one ended state to another, such as blocked to stopped after `claude stop`.",
         "each next wakeup is set to the 1-hour maximum",
         ".ease-context/handoffs/*-decisions.md",
-        'w["path"]',
         "**Weigh the load.**",
         "run `ps` on its process tree: `ps -A -o pid=,ppid=,rss=,%cpu=,command=`, walked from that pid",
         "Decide by judgment; no number triggers an action.",
@@ -200,16 +209,3 @@ def test_skills_name_no_resource_threshold():
         text = (SKILLS / name / "SKILL.md").read_text()
         match = number.search(text)
         assert not match, f"{name}: {match and match.group(0)}"
-
-
-def test_pilot_watcher_ignores_commented_orders():
-    skill = (SKILLS / "pilot" / "SKILL.md").read_text()
-    line = next(l for l in skill.splitlines() if l.startswith("ids = set(re.findall("))
-    pattern = re.search(r'r"(.+?)", open', line).group(1)
-    orders = (
-        "# Orders\n"
-        "- [live] souk: goal (session 11111111-1111-1111-1111-111111111111)\n"
-        "# done 2026-11-14: [old] proper: goal (session 22222222-2222-2222-2222-222222222222)\n"
-    )
-    assert set(re.findall(pattern, orders, re.M)) == {"11111111-1111-1111-1111-111111111111"}
-    assert "A line that starts with `#` is a done or paused order" in skill
