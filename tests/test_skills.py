@@ -48,8 +48,16 @@ def test_autopilot_skill_names_its_rules():
         "Continue from <path>",
         "**heavy: started <command>",
         "**heavy: stopped <command>",
+        "**answered: ASK JUAN <n>.**",
     ):
         assert term in text, term
+    decisions = text.split("## The decisions file")[1].split("\n## ")[0]
+    for term in (
+        "# Autopilot: <the order> (session <id>)",
+        "$CLAUDE_CODE_SESSION_ID",
+        "(session <id>, <id>)",
+    ):
+        assert term in decisions, term
 
 
 def test_pilot_skill_names_its_rules():
