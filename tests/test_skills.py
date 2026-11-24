@@ -7,6 +7,10 @@ GUARD_HOOK = (
     'command: python3 "${CLAUDE_PLUGIN_ROOT}/pilot/guard.py" --config ~/ease/.ease-context/pilot/workspaces.json'
     " --approvals ~/ease/.ease-context/pilot/approvals.json --allow-pilot-commands"
 )
+OUTBOX_HOOKS = [
+    f'command: python3 "${{CLAUDE_PLUGIN_ROOT}}/pilot/outbox.py" --dir ~/ease/.ease-context/pilot {check}'
+    for check in ("push-check", "stop-check")
+]
 
 
 def frontmatter(path):
@@ -63,6 +67,9 @@ def test_autopilot_skill_names_its_rules():
 def test_pilot_skill_names_its_rules():
     path = SKILLS / "pilot" / "SKILL.md"
     assert field(frontmatter(path), "disable-model-invocation") == "true"
+    hooks = "\n".join(frontmatter(path))
+    for line in (GUARD_HOOK, *OUTBOX_HOOKS, '- matcher: "PushNotification"', "\n  Stop:\n"):
+        assert line in hooks, line
     text = path.read_text()
     for term in (
         "orders.md",
@@ -81,8 +88,23 @@ def test_pilot_skill_names_its_rules():
         "## Talking to Juan",
         "at most 3 short lines",
         "A wake that finds nothing new sends nothing",
-        "is never sent again on a later wake",
-        "Ask one question at a time. While a question you sent is unanswered, send Juan nothing on your own",
+        "2. Re-read `~/ease/.ease-context/pilot/instructions.md` and follow it. Every wake re-reads it",
+        "If it exists without `instructions.md`, copy `<skill base dir>/../../pilot/instructions.md` into it.",
+        "exactly the output of `outbox.py compose`",
+        "outbox.py add --kind decision --ref <file>#<n>",
+        "run `outbox.py drop <file>#<n>` for each `answered: ASK JUAN <n>` entry",
+        "Never add from a file whose title names no driven session.",
+        "add each ASK JUAN entry that has no matching `answered: ASK JUAN <n>` entry",
+        "`outbox.py drop --file <its decisions file>`",
+        "`outbox.py list` maps each number to its item",
+        "`outbox.py close 1 2`, and send no push",
+        "Tell me when <X> is done",
+        "outbox.py add --kind result",
+        "Every push is exactly the composed push",
+        "It is sent only when a new item joined the outbox",
+        "Closed items, finished work Juan did not ask about, worker starts and restarts and quiet wakes send no push.",
+        "These three lines are chat only, never a push.",
+        "Both hooks allow everything outside the pilot session",
         "not even \"nothing new\"",
         "never say what you are about to do",
         "Show sessions",
@@ -140,6 +162,7 @@ def test_pilot_skill_names_its_rules():
         "How's the computer?",
         "11. Measure your own size",
         GUARD_HOOK,
+        *OUTBOX_HOOKS,
         "--allow-pilot-commands",
         "pilot.session",
         "permissionMode",
