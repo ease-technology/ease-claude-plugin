@@ -120,15 +120,54 @@ def test_ask_juan_in_a_file_not_driven_is_not_news(setup):
     assert finish(watcher) == f"new entry {driven}:1. **answered: ASK JUAN 4.** yes\n"
 
 
-def test_accepted_session_moving_to_stopped_is_not_reported(setup):
+def test_paused_session_moving_to_stopped_is_not_reported(setup):
     setup.orders(f"- [fix] ws: fix it (session {HANDED})\n")
     setup.agents((WORKER, "pilot-login", "busy"), (HANDED, "Fixing", "busy"))
-    stop(setup.baseline())
+    watcher = setup.baseline()
+    pause = setup.dir / "watcher.pause"
+    pause.write_text(HANDED + "\n")
     setup.agents((WORKER, "pilot-login", "busy"), (HANDED, "Fixing", "stopped"))
-    watcher = setup.start("--accept", HANDED)
+    assert still_running(watcher)
+    pause.unlink()
     assert still_running(watcher)
     setup.agents((WORKER, "pilot-login", "failed"), (HANDED, "Fixing", "stopped"))
     assert finish(watcher) == f"session pilot-login ({WORKER}) is failed\n"
+
+
+def test_stale_pause_file_is_ignored(setup):
+    setup.agents((WORKER, "pilot-login", "busy"))
+    watcher = setup.baseline()
+    pause = setup.dir / "watcher.pause"
+    pause.write_text(WORKER + "\n")
+    old = time.time() - 600
+    os.utime(pause, (old, old))
+    setup.agents((WORKER, "pilot-login", "stopped"))
+    assert finish(watcher) == f"session pilot-login ({WORKER}) is stopped\n"
+
+
+def test_corrupt_snapshot_is_treated_as_missing(setup):
+    setup.agents((WORKER, "pilot-login", "busy"))
+    path = setup.decisions("login", WORKER, "1. **ASK JUAN: merge PR 3?** Run: gh pr merge 3")
+    (setup.dir / "watcher-state.json").write_text("{not json")
+    watcher = setup.start()
+    deadline = time.time() + 10
+    while (setup.dir / "watcher-state.json").read_text() == "{not json":
+        assert time.time() < deadline, "no snapshot saved"
+        time.sleep(0.02)
+    assert still_running(watcher)
+    append(path, "2. **ASK JUAN: merge PR 4?** Run: gh pr merge 4")
+    assert finish(watcher) == f"new entry {path}:2. **ASK JUAN: merge PR 4?** Run: gh pr merge 4\n"
+
+
+def test_order_session_counts_as_driven_when_claude_agents_fails(setup):
+    setup.orders(f"- [fix] ws: fix it (session {HANDED})\n")
+    (setup.config / "agents.json").write_text("not json")
+    path = setup.decisions("fix", HANDED, "1. **ASK JUAN: old ask?** Run: gh pr merge 1")
+    watcher = setup.baseline()
+    setup.agents((HANDED, "Fixing", "busy"))
+    assert still_running(watcher)
+    append(path, "2. **ASK JUAN: new ask?** Run: gh pr merge 2")
+    assert finish(watcher) == f"new entry {path}:2. **ASK JUAN: new ask?** Run: gh pr merge 2\n"
 
 
 def test_event_while_no_watcher_runs_is_reported_on_the_next_first_poll(setup):

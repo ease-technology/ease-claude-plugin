@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The pilot's watcher: polls the managed sessions and the driven decisions files, and exits on news.
 
-Run as `watcher.py --dir <pilot folder> [--interval 60] [--accept <sessionId>...]`. It writes its pid to
+Run as `watcher.py --dir <pilot folder> [--interval 60]`. It writes its pid to
 <dir>/watcher.pid, polls at once and then every interval, and exits silently once <dir>/pilot.session no
 longer holds $CLAUDE_CODE_SESSION_ID. Standard library only.
 
@@ -15,10 +15,15 @@ when its first line holds the id of a managed session. News is:
 A session missing from a poll keeps its last known state. `heavy: stopped` lines are never news.
 
 The snapshot is saved to <dir>/watcher-state.json after every poll, so a restarted watcher still finds
-what happened while none ran. With no saved snapshot, the first poll only takes a baseline. --accept
-takes those sessions' states on the first poll as known, without news.
+what happened while none ran. With no saved snapshot, or an unreadable one, the first poll only takes a
+baseline. The sessions orders.md names count as driven even when `claude agents` cannot list them.
 
-Each news line is appended to <dir>/inbox.txt. After a poll, if inbox.txt has a line, the watcher
+While <dir>/watcher.pause exists and is under 5 minutes old, the watcher does not poll. Each line of it is a
+session id whose state the next poll takes as known, without news, so the pilot's own `claude stop` and
+wake never wake the pilot. The watcher keeps running through the pause, so no task exit wakes it either.
+
+Each news line is appended to <dir>/inbox.txt before the snapshot is saved, so a kill between the two
+writes repeats news rather than losing it. After a poll, if inbox.txt has a line, the watcher
 prints its first line and exits 0, so a leftover inbox ends a new watcher on its first poll.
 """
 import argparse
@@ -31,6 +36,7 @@ import sys
 import tempfile
 import time
 
+PAUSE_LIMIT = 300
 ENDED = {"done", "stopped", "blocked", "failed", "waiting"}
 ORDER = re.compile(r"^- .*\(session ([0-9a-f-]{36})\)", re.M)
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -92,7 +98,7 @@ def poll(folder, saved, accept):
             if is_managed(s["sessionId"], s.get("name")):
                 now[s["sessionId"]] = {"name": s.get("name") or "", "state": s.get("state") or s.get("status")}
     sessions = {i: s for i, s in {**known, **now}.items() if is_managed(i, s["name"])}
-    lines = entries(workspaces, set(sessions))
+    lines = entries(workspaces, set(sessions) | orders)
     snapshot = {"sessions": sessions, "entries": lines}
     if saved is None:
         return [], snapshot
@@ -107,11 +113,30 @@ def poll(folder, saved, accept):
     return news, snapshot
 
 
+def load_saved(path):
+    """The saved snapshot, or None when it is missing or unreadable."""
+    try:
+        saved = json.loads(read(path, "null"))
+    except ValueError:
+        return None
+    return saved if isinstance(saved, dict) else None
+
+
+def paused(folder):
+    """The session ids in a fresh watcher.pause, or None when there is no fresh pause."""
+    path = os.path.join(folder, "watcher.pause")
+    try:
+        if time.time() - os.path.getmtime(path) > PAUSE_LIMIT:
+            return None
+    except OSError:
+        return None
+    return set(read(path).split())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dir", required=True)
     parser.add_argument("--interval", type=float, default=60)
-    parser.add_argument("--accept", nargs="*", default=[])
     options = parser.parse_args()
     folder = options.dir
     me = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
@@ -119,22 +144,36 @@ def main():
         file.write(f"{os.getpid()}\n")
 
     state_path = os.path.join(folder, "watcher-state.json")
-    saved = json.loads(read(state_path)) if os.path.exists(state_path) else None
-    accept = set(options.accept)
+    saved = load_saved(state_path)
+    accept = set()
     while True:
         if not me or read(os.path.join(folder, "pilot.session")).strip() != me:
             return 0
-        news, saved = poll(folder, saved, accept)
-        accept = set()
-        save(folder, saved)
+        held = paused(folder)
+        if held is not None:
+            accept |= held
+            time.sleep(min(options.interval, 1))
+            continue
+        news, snapshot = poll(folder, saved, accept)
+        held = paused(folder)
+        if held is not None:
+            accept |= held
+            news = [line for line in news if not any(f"({i})" in line for i in held)]
+        else:
+            accept = set()
         if news:
             with open(os.path.join(folder, "inbox.txt"), "a") as file:
                 file.writelines(line + "\n" for line in news)
+        saved = snapshot
+        save(folder, saved)
         waiting = [line for line in read(os.path.join(folder, "inbox.txt")).splitlines() if line.strip()]
         if waiting:
             print(waiting[0])
             return 0
-        time.sleep(options.interval)
+        deadline = time.time() + options.interval
+        while time.time() < deadline:
+            time.sleep(min(1, max(0, deadline - time.time())))
+            accept |= paused(folder) or set()
 
 
 if __name__ == "__main__":
