@@ -83,9 +83,9 @@ It uses no tools, runs only when you type it, and leaves later replies unchanged
 
 ## Say
 
-`/ease:say <transcript>` turns something you dictated into one clean prompt. Alone, it uses your previous message. It replies with the prompt, then lists the words it had to guess as `heard → used`, and waits. Reply "go" to have Claude act on the prompt, with any corrections you add.
+`/ease:say <transcript>` turns something you dictated into one clean prompt. Alone, it uses your previous message. It asks you "Is this what you want to say?", showing the prompt and the words it had to guess as `heard → used`. Pick **Send** and Claude acts on the prompt as your message, pick **Drop** to do nothing, or type corrections and it asks again.
 
-It uses no tools, runs only when you type it, and never names or runs an ease command. When there is nothing to clean, it answers in one line.
+It touches nothing until you pick Send, runs only when you type it, and never names an ease command in the prompt. When there is nothing to clean, it answers in one line.
 
 ## Autopilot
 

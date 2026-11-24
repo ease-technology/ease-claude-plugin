@@ -153,11 +153,12 @@ def test_say_skill_names_its_rules():
         "`/ease:`",
         "nothing to clean",
         "compaction",
-        "No tools",
-        "no tool calls",
-        "This message only",
-        "go",
-        "normal message",
+        "AskUserQuestion",
+        "Is this what you want to say?",
+        "**Send**",
+        "**Drop**",
+        "Other",
+        "same turn",
     ):
         assert term in text, term
 
