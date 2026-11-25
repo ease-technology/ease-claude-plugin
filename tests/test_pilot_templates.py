@@ -32,7 +32,7 @@ def test_settings_template_renders_a_guard_hook(name):
     assert entry["matcher"] == "*"
     assert hook["type"] == "command"
     assert hook["command"].startswith(f"python3 {guard} --config ")
-    assert "--approvals" not in hook["command"]
+    assert hook["command"].endswith(" --approvals ~/ease/.ease-context/pilot/approvals.json")
 
 
 def test_pilot_settings_template_is_gone_and_worker_settings_grant_nothing():

@@ -5,7 +5,7 @@ import re
 SKILLS = pathlib.Path(__file__).parent.parent / "skills"
 GUARD_HOOK = (
     'command: python3 "${CLAUDE_PLUGIN_ROOT}/pilot/guard.py" --config ~/ease/.ease-context/pilot/workspaces.json'
-    " --approvals ~/ease/.ease-context/pilot/approvals.json --allow-pilot-commands"
+    " --allow-pilot-commands"
 )
 OUTBOX_HOOKS = [
     f'command: python3 "${{CLAUDE_PLUGIN_ROOT}}/pilot/outbox.py" --dir ~/ease/.ease-context/pilot {check}'
@@ -53,6 +53,7 @@ def test_autopilot_skill_names_its_rules():
         "**heavy: started <command>",
         "**heavy: stopped <command>",
         "**answered: ASK JUAN <n>.**",
+        "run its `Run:` command exactly as written, alone, as one Bash call",
     ):
         assert term in text, term
     decisions = text.split("## The decisions file")[1].split("\n## ")[0]
@@ -135,6 +136,8 @@ def test_pilot_skill_names_its_rules():
         "echo <sessionId> >> ~/ease/.ease-context/pilot/watcher.pause",
         "rm -f ~/ease/.ease-context/pilot/watcher.pause",
         "the `Run:` command of the entry at the item's ref, when it has one",
+        "as one plain JSON string, exactly as written",
+        "Never take the action yourself: only the workers' guard reads `approvals.json`",
         "first pause the watcher as [Waking](#waking) says",
         "The watcher pause and the `started a copy` rule of Sending a message apply as is.",
         "that move is from one ended state to another and is not news, so the watcher keeps running",
