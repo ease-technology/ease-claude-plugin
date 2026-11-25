@@ -138,7 +138,7 @@ The pilot and every worker run with a guard, a PreToolUse hook (`pilot/guard.py`
 - production database clients (`psql`, `pg_dump`, `mysql`, `mongosh`, `cloud-sql-proxy`) with a `prod_markers` value in their arguments
 - any tool matching a pattern in `blocked_tools`, such as sending on Slack or by email
 
-When you say yes to an entry, the pilot adds the exact command to `approvals.json`, and the guard lets it through once.
+When you say yes to an entry, the pilot adds the exact command to `approvals.json` and tells the worker that asked to run it; the worker's guard lets it through once. The pilot never runs it itself: its own guard does not read `approvals.json`.
 
 Workers get the guard from `~/ease/.ease-context/pilot/worker-settings.json`, and the pilot from the hook in the pilot skill's frontmatter, which stays registered in that window until it closes. The guard is never in a repo's settings.
 

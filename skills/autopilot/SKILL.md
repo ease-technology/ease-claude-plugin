@@ -105,7 +105,7 @@ A session that continues the file, from Start step 1 or from step 4 when the fil
 
 Each entry gives the decision in bold, why, Jev's picks and confidences with the rounds taken (or "Jev: no answer"), and how to undo it. ASK JUAN entries start with **ASK JUAN** and give the exact command or click. Contested entries say **contested**; an important contested one is an ASK JUAN entry with each side in one line.
 
-When Juan answers an ASK JUAN entry in this session's own window, append an answered entry that names that entry's number before you act on the answer. It carries no Jev line and no Undo.
+When Juan answers an ASK JUAN entry in this session's own window, append an answered entry that names that entry's number before you act on the answer. It carries no Jev line and no Undo. When Juan says yes to an ASK JUAN entry, in this window or through the pilot, run its `Run:` command exactly as written, alone, as one Bash call: the guard lets that exact text through once.
 
 Each time you start or stop heavy work, meaning a test suite (with its worker count), a container, a dev server or a long build, append a heavy entry that names the command and says started or stopped. A heavy entry is append-only and numbered like every other entry, and it carries no Jev line and no Undo. Autopilot does not clean up or throttle heavy work on its own.
 
