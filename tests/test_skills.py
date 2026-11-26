@@ -205,6 +205,19 @@ def test_pilot_skill_manages_by_juans_rules():
         assert term in rules, term
 
 
+
+def test_pilot_skill_keeps_a_project_index():
+    text = (SKILLS / "pilot" / "SKILL.md").read_text()
+    for term in (
+        "~/ease/.ease-context/pilot/projects.md",
+        "refresh the project index",
+        "byte-identical",
+        "claude --bg -n pilot-<slug>",
+        '"/ease:load-context <project>',
+    ):
+        assert term in text, term
+
+
 def test_message_skill_names_its_rules():
     path = SKILLS / "message" / "SKILL.md"
     assert field(frontmatter(path), "disable-model-invocation") is None

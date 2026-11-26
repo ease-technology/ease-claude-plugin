@@ -273,6 +273,7 @@ PILOT_COMMANDS = [
     WAKE,
     worker_start(),
     worker_start("pilot-add-login-2", prompt='"/ease:autopilot add login\nContinue from /x/handoffs/add-login.md"'),
+    worker_start(prompt='"/ease:load-context souk\n/ease:autopilot add login\n  - [ ] test data on the accounts of everyone at joinsouk.com\nContext: the Souk app, repo souk"'),
 ]
 
 
