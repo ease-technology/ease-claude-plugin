@@ -54,6 +54,7 @@ def test_autopilot_skill_names_its_rules():
         "**heavy: stopped <command>",
         "**answered: ASK JUAN <n>.**",
         "run its `Run:` command exactly as written, alone, as one Bash call",
+        "draft it with `/ease:message`",
     ):
         assert term in text, term
     decisions = text.split("## The decisions file")[1].split("\n## ")[0]
@@ -182,6 +183,24 @@ def test_pilot_skill_names_its_rules():
         "add \"build in a worktree\" to the worker's goal",
         "Do the same when you can't tell.",
         "When an order is to answer a PR's review comments and another live session may be using that repo, hold the order until the repo is free.",
+        "draft it with `/ease:message`",
+    ):
+        assert term in text, term
+
+
+def test_message_skill_names_its_rules():
+    path = SKILLS / "message" / "SKILL.md"
+    assert field(frontmatter(path), "disable-model-invocation") is None
+    assert field(frontmatter(path), "argument-hint")
+    text = path.read_text()
+    for term in (
+        "never a wall",
+        "no headers or bold",
+        "the ask or the news first",
+        "one link",
+        "never sent",
+        "ASK JUAN",
+        "please double check that Charlie",
     ):
         assert term in text, term
 

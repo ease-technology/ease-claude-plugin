@@ -75,6 +75,7 @@ Never take these actions alone:
 - merging into a branch other people merge into
 - writing to a production database, deploying or releasing
 - sending anything in Juan's name (Slack, email, PR or issue comments, reviews; drafts are fine)
+  When Juan asks for a message people will read, draft it with `/ease:message`.
 - force pushes, and deleting branches or data the session didn't create
 - spending money beyond Claude usage
 - credentials and permissions
