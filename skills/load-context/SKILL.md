@@ -5,7 +5,7 @@ description: Use when the user runs /ease:load-context, or asks to load an ease 
 
 # ease load-context
 
-Load an ease project's context into this conversation, so the rest of it knows the project. Change nothing.
+Load an ease project's context into this conversation, so the rest of it knows the project. Loading changes nothing.
 
 1. Find the workspace: the current folder, or the nearest folder above it, that contains `.ease-context/`. If there is none, say so and stop.
 2. Pick the project from the user's words. The projects are the folders in `.ease-context/projects/`; match the user's words against their names, the repo names in each `project.json`, and what each `context.md` describes. If the user named no project, load every project. The first line of what follows the command names the project. Any lines after it are the session's task: after the one-line reply, act on them in this same turn as the user's message. This is how a pilot worker prompt runs load-context and then `/ease:autopilot`.
