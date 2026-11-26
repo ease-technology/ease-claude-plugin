@@ -227,6 +227,16 @@ def test_say_skill_names_its_rules():
         assert term in text, term
 
 
+def test_load_context_skill_names_its_rules():
+    text = (SKILLS / "load-context" / "SKILL.md").read_text()
+    for term in (
+        "byte-identical",
+        "skipped copies",
+        "act on them in this same turn as the user's message",
+    ):
+        assert term in text, term
+
+
 def test_pilot_waking_names_no_monitor_and_no_ten_minutes():
     text = (SKILLS / "pilot" / "SKILL.md").read_text()
     waking = text[text.index("## Waking") : text.index("## Each wake")]

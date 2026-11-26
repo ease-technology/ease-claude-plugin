@@ -8,6 +8,6 @@ description: Use when the user runs /ease:load-context, or asks to load an ease 
 Load an ease project's context into this conversation, so the rest of it knows the project. Change nothing.
 
 1. Find the workspace: the current folder, or the nearest folder above it, that contains `.ease-context/`. If there is none, say so and stop.
-2. Pick the project from the user's words. The projects are the folders in `.ease-context/projects/`; match the user's words against their names, the repo names in each `project.json`, and what each `context.md` describes. If the user named no project, load every project.
-3. Read each chosen project's `project.json` and `context.md`. Never read `.ease-context/config.json`: it holds the API key.
-4. Reply in one line: the projects loaded and the absolute paths of their repos (each repo's `path` is relative to the workspace).
+2. Pick the project from the user's words. The projects are the folders in `.ease-context/projects/`; match the user's words against their names, the repo names in each `project.json`, and what each `context.md` describes. If the user named no project, load every project. The first line of what follows the command names the project. Any lines after it are the session's task: after the one-line reply, act on them in this same turn as the user's message. This is how a pilot worker prompt runs load-context and then `/ease:autopilot`.
+3. Read each chosen project's `project.json` and `context.md`. Never read `.ease-context/config.json`: it holds the API key. When you load several projects, skip a project whose `context.md` is byte-identical to one already loaded, compared with `cmp -s` or `shasum`, and do not read that copy.
+4. Reply in one line: the projects loaded and the absolute paths of their repos (each repo's `path` is relative to the workspace), and any skipped copies, as 'skipped copies of <project>: <a>, <b>'.
