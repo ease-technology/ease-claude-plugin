@@ -14,13 +14,18 @@ Standard library only.
   drop <ref>... | drop --file <path>                 closes refs, or every ref starting with <path>#
   push-check                                         PreToolUse hook for PushNotification
   stop-check                                         Stop hook
+  remote-control <config_dir> <session_id>           prints on or off for that session's transcript
 
 Both hooks read the hook JSON on stdin and allow everything in a session whose id is not the
 content of <dir>/pilot.session. push-check refuses (exit 2) any push that is not exactly the
-composed push, and every push while no item is new; the exact push is recorded as sent.
-stop-check blocks the stop while an item is new.
+composed push, every push while no item is new, and every push while Remote Control is off; the
+exact push is recorded as sent. stop-check blocks the stop while an item is new. While Remote
+Control is off, stop-check instead records a reply that contains the composed push as the push.
+Remote Control is off when the transcript's last remote_session_change url is not a claude.ai
+session link, when there is no such line, or when the transcript cannot be read.
 """
 import argparse
+import glob
 import json
 import os
 import sys
@@ -29,6 +34,7 @@ from datetime import datetime, timezone
 
 MAX_WORDS = 14
 OPEN = ("new", "sent")
+SESSION_LINK = "https://claude.ai/code/session_"
 
 
 def load(folder):
@@ -78,6 +84,26 @@ def is_pilot(folder, hook):
     return bool(pilot) and hook.get("session_id") == pilot
 
 
+def remote_control_on(path):
+    """True when the last remote_session_change in the transcript at path links a claude.ai session."""
+    url = None
+    try:
+        with open(path, errors="replace") as file:
+            for line in file:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(entry, dict) or entry.get("type") != "attachment":
+                    continue
+                attachment = entry.get("attachment")
+                if isinstance(attachment, dict) and attachment.get("type") == "remote_session_change":
+                    url = attachment.get("url")
+    except (OSError, TypeError):
+        return False
+    return isinstance(url, str) and url.startswith(SESSION_LINK)
+
+
 def has_new(state):
     return any(item["state"] == "new" for item in state["items"])
 
@@ -96,6 +122,13 @@ def push_check(folder):
         hook = json.load(sys.stdin)
         if hook.get("tool_name") != "PushNotification" or not is_pilot(folder, hook):
             return 0
+        if not remote_control_on(hook.get("transcript_path")):
+            print(
+                "Push refused: Remote Control is off, so send no push. "
+                "End your reply with exactly the output of outbox.py compose.",
+                file=sys.stderr,
+            )
+            return 2
         state = load(folder)
         if not has_new(state):
             print("Push refused: no new item in the outbox, so send no push.", file=sys.stderr)
@@ -118,9 +151,18 @@ def stop_check(folder):
         if not is_pilot(folder, hook):
             return 0
         state = load(folder)
-        if has_new(state):
-            reason = f"The outbox has an unsent new item. Call PushNotification with exactly this message:\n{compose(state)}"
-            print(json.dumps({"decision": "block", "reason": reason}))
+        if not has_new(state):
+            return 0
+        text = compose(state)
+        if remote_control_on(hook.get("transcript_path")):
+            reason = f"The outbox has an unsent new item. Call PushNotification with exactly this message:\n{text}"
+        elif text in (hook.get("last_assistant_message") or ""):
+            record_push(state, text)
+            save(folder, state)
+            return 0
+        else:
+            reason = f"Remote Control is off, so send no PushNotification. End your reply with exactly this text:\n{text}"
+        print(json.dumps({"decision": "block", "reason": reason}))
         return 0
     except Exception as error:
         print(f"outbox: stop-check error, stop allowed ({error})", file=sys.stderr)
@@ -144,12 +186,20 @@ def main():
     drop_parser.add_argument("refs", nargs="*")
     commands.add_parser("push-check")
     commands.add_parser("stop-check")
+    remote_parser = commands.add_parser("remote-control")
+    remote_parser.add_argument("config_dir")
+    remote_parser.add_argument("session_id")
     options = parser.parse_args()
 
     if options.command == "push-check":
         return push_check(options.dir)
     if options.command == "stop-check":
         return stop_check(options.dir)
+    if options.command == "remote-control":
+        pattern = os.path.join(os.path.expanduser(options.config_dir), "projects", "*", f"{options.session_id}.jsonl")
+        matches = glob.glob(pattern)
+        print("on" if remote_control_on(matches[0] if matches else None) else "off")
+        return 0
 
     state = load(options.dir)
     if options.command == "add":

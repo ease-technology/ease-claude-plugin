@@ -1,7 +1,10 @@
+import itertools
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 OUTBOX = Path(__file__).resolve().parent.parent / "pilot" / "outbox.py"
 
@@ -141,15 +144,41 @@ def hook(folder, command, payload):
     )
 
 
-def push(folder, message, session_id=PILOT, tool_name="PushNotification"):
+CLAUDE_URL = "https://claude.ai/code/session_abc"
+TRANSCRIPTS = itertools.count(1)
+ON = object()  # the default transcript_path: a fresh transcript with Remote Control on
+
+
+def transcript(folder, url, attachment=True):
+    """A transcript with a user line and, when attachment is True, a remote_session_change to url."""
+    path = Path(folder) / f"transcript-{next(TRANSCRIPTS)}.jsonl"
+    lines = [{"type": "user", "message": {"role": "user", "content": "hi"}}]
+    if attachment:
+        lines.append({"type": "attachment", "attachment": {"type": "remote_session_change", "url": url}})
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    return str(path)
+
+
+def with_transcript(folder, payload, transcript_path):
+    """Adds transcript_path to the payload; None leaves the key out."""
+    if transcript_path is ON:
+        transcript_path = transcript(folder, CLAUDE_URL)
+    if transcript_path is not None:
+        payload["transcript_path"] = transcript_path
+    return payload
+
+
+def push(folder, message, session_id=PILOT, tool_name="PushNotification", transcript_path=ON):
     payload = {"session_id": session_id, "hook_event_name": "PreToolUse", "tool_name": tool_name,
                "tool_input": {"message": message}}
-    return hook(folder, "push-check", payload)
+    return hook(folder, "push-check", with_transcript(folder, payload, transcript_path))
 
 
-def stop(folder, session_id=PILOT, stop_hook_active=False):
+def stop(folder, session_id=PILOT, stop_hook_active=False, transcript_path=ON, last_assistant_message=None):
     payload = {"session_id": session_id, "hook_event_name": "Stop", "stop_hook_active": stop_hook_active}
-    return hook(folder, "stop-check", payload)
+    if last_assistant_message is not None:
+        payload["last_assistant_message"] = last_assistant_message
+    return hook(folder, "stop-check", with_transcript(folder, payload, transcript_path))
 
 
 def pilot_outbox(folder):
@@ -245,3 +274,102 @@ def test_hooks_allow_everything_outside_the_pilot_session(tmp_path):
     for result in [push(tmp_path, "anything"), stop(tmp_path)]:
         assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
     assert (tmp_path / "outbox.json").read_bytes() == before
+
+
+REMOTE_CONTROL_REFUSAL = (
+    "Push refused: Remote Control is off, so send no push. "
+    "End your reply with exactly the output of outbox.py compose.\n"
+)
+OFF_REASON = "Remote Control is off, so send no PushNotification. End your reply with exactly this text:\n"
+ON_REASON = "The outbox has an unsent new item. Call PushNotification with exactly this message:\n"
+
+OFF_TRANSCRIPTS = {
+    "url null": lambda folder: transcript(folder, None),
+    "other url": lambda folder: transcript(folder, "https://example.com/code/session_abc"),
+    "no line": lambda folder: transcript(folder, None, attachment=False),
+    "missing file": lambda folder: str(folder / "missing.jsonl"),
+    "no transcript_path": lambda folder: None,
+}
+
+
+def off(folder):
+    return transcript(folder, None)
+
+
+def without_at(state):
+    return {**state, "sent": [{key: value for key, value in entry.items() if key != "at"} for entry in state["sent"]]}
+
+
+@pytest.mark.parametrize("off_transcript", OFF_TRANSCRIPTS.values(), ids=OFF_TRANSCRIPTS.keys())
+def test_push_is_refused_while_remote_control_is_off(tmp_path, off_transcript):
+    composed = pilot_outbox(tmp_path)
+    before = (tmp_path / "outbox.json").read_bytes()
+    result = push(tmp_path, composed, transcript_path=off_transcript(tmp_path))
+    assert result.returncode == 2
+    assert result.stderr == REMOTE_CONTROL_REFUSAL
+    assert (tmp_path / "outbox.json").read_bytes() == before
+
+
+def test_remote_control_off_stop_asks_for_the_push_in_the_reply_and_passes_once_it_is_there(tmp_path):
+    composed = pilot_outbox(tmp_path)
+    before = (tmp_path / "outbox.json").read_bytes()
+    result = stop(tmp_path, transcript_path=off(tmp_path))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"decision": "block", "reason": OFF_REASON + composed}
+    assert (tmp_path / "outbox.json").read_bytes() == before
+    result = stop(tmp_path, transcript_path=off(tmp_path), last_assistant_message="Two things need you.\n" + composed)
+    assert (result.returncode, result.stdout) == (0, "")
+    result = stop(tmp_path, transcript_path=off(tmp_path))
+    assert (result.returncode, result.stdout) == (0, "")
+
+
+def test_chat_push_is_recorded_like_a_real_push(tmp_path):
+    chat, real = tmp_path / "chat", tmp_path / "real"
+    chat.mkdir()
+    real.mkdir()
+    composed = pilot_outbox(chat)
+    assert pilot_outbox(real) == composed
+    assert stop(chat, transcript_path=off(chat), last_assistant_message="Two things need you.\n" + composed).stdout == ""
+    assert push(real, composed).returncode == 0
+    state = json.loads((chat / "outbox.json").read_text())
+    assert states(chat) == {"r1": "closed", "d1": "sent"}
+    assert state["last_push"] == ["d1", "r1"]
+    assert [entry["text"] for entry in state["sent"]] == [composed]
+    assert state["sent"][0]["at"]
+    assert without_at(state) == without_at(json.loads((real / "outbox.json").read_text()))
+    assert outbox(chat, "list").stdout == "1. [decision] d1 Merge PR 3? (sent)\n2. [result] r1 Login PR is ready (closed)\n"
+    assert outbox(chat, "close", "1").returncode == 0
+    assert states(chat) == {"r1": "closed", "d1": "closed"}
+
+
+def test_remote_control_on_later_pushes_every_open_item(tmp_path):
+    composed = pilot_outbox(tmp_path)
+    assert stop(tmp_path, transcript_path=off(tmp_path), last_assistant_message=composed).stdout == ""
+    add(tmp_path, "decision", "d2", "Drop the old table?")
+    later = "2 need you\n1. Merge PR 3?\n2. Drop the old table?"
+    result = stop(tmp_path)
+    assert json.loads(result.stdout) == {"decision": "block", "reason": ON_REASON + later}
+    result = push(tmp_path, later)
+    assert result.returncode == 0, result.stderr
+    assert states(tmp_path) == {"r1": "closed", "d1": "sent", "d2": "sent"}
+    assert json.loads((tmp_path / "outbox.json").read_text())["last_push"] == ["d1", "d2"]
+
+
+def test_remote_control_command_reads_the_session_transcript(tmp_path):
+    project = tmp_path / "projects" / "-x"
+    project.mkdir(parents=True)
+    for url, attachment, expected in [(CLAUDE_URL, True, "on\n"), (None, True, "off\n"), (None, False, "off\n")]:
+        Path(transcript(project, url, attachment)).replace(project / "abc.jsonl")
+        result = outbox(tmp_path, "remote-control", str(tmp_path), "abc")
+        assert (result.returncode, result.stdout) == (0, expected), result.stderr
+    result = outbox(tmp_path, "remote-control", str(tmp_path), "missing")
+    assert (result.returncode, result.stdout) == (0, "off\n"), result.stderr
+
+
+def test_stop_check_error_lets_the_stop_through_while_remote_control_is_off(tmp_path):
+    (tmp_path / "pilot.session").write_text(PILOT)
+    (tmp_path / "outbox.json").write_text("{not json")
+    result = stop(tmp_path, transcript_path=off(tmp_path))
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr
