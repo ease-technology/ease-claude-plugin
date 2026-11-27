@@ -54,6 +54,7 @@ def test_autopilot_skill_names_its_rules():
         "**heavy: stopped <command>",
         "**answered: ASK JUAN <n>.**",
         "run its `Run:` command exactly as written, alone, as one Bash call",
+        "draft it with `/ease:message`",
     ):
         assert term in text, term
     decisions = text.split("## The decisions file")[1].split("\n## ")[0]
@@ -182,6 +183,54 @@ def test_pilot_skill_names_its_rules():
         "add \"build in a worktree\" to the worker's goal",
         "Do the same when you can't tell.",
         "When an order is to answer a PR's review comments and another live session may be using that repo, hold the order until the repo is free.",
+        "draft it with `/ease:message`",
+    ):
+        assert term in text, term
+
+
+def test_pilot_skill_manages_by_juans_rules():
+    text = (SKILLS / "pilot" / "SKILL.md").read_text()
+    rules = text[text.index("## Juan's rules") : text.index("## Context size")]
+    for term in (
+        "`  - [ ] <Juan's words>`",
+        "never only relayed",
+        "confirm each open checklist line with evidence",
+        "never checks anything itself",
+        "log in as Juan",
+        "an estimate it cannot back",
+        "An ask reaches Juan only when there is truly no other way.",
+        "in that same wake",
+        "closing the day",
+    ):
+        assert term in rules, term
+
+
+
+def test_pilot_skill_keeps_a_project_index():
+    text = (SKILLS / "pilot" / "SKILL.md").read_text()
+    for term in (
+        "~/ease/.ease-context/pilot/projects.md",
+        "refresh the project index",
+        "byte-identical",
+        "claude --bg -n pilot-<slug>",
+        '"/ease:load-context <project>',
+    ):
+        assert term in text, term
+
+
+def test_message_skill_names_its_rules():
+    path = SKILLS / "message" / "SKILL.md"
+    assert field(frontmatter(path), "disable-model-invocation") is None
+    assert field(frontmatter(path), "argument-hint")
+    text = path.read_text()
+    for term in (
+        "never a wall",
+        "no headers or bold",
+        "the ask or the news first",
+        "one link",
+        "never sent",
+        "ASK JUAN",
+        "please double check that Charlie",
     ):
         assert term in text, term
 
@@ -204,6 +253,16 @@ def test_say_skill_names_its_rules():
         "**Drop**",
         "Other",
         "same turn",
+    ):
+        assert term in text, term
+
+
+def test_load_context_skill_names_its_rules():
+    text = (SKILLS / "load-context" / "SKILL.md").read_text()
+    for term in (
+        "byte-identical",
+        "skipped copies",
+        "act on them in this same turn as the user's message",
     ):
         assert term in text, term
 

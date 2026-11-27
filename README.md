@@ -67,7 +67,7 @@ PR comments runs are kept in `.ease-context/pr-runs/`. Add it to your workspace'
 
 ## Project context
 
-`/ease:build` and `/ease:ticket` read a project's `context.md` on their own. To have it in an ordinary conversation, run `/ease:load-context <project>`, or `/ease:load-context` alone for every project in the workspace.
+`/ease:build` and `/ease:ticket` read a project's `context.md` on their own. To have it in an ordinary conversation, run `/ease:load-context <project>`, or `/ease:load-context` alone for every project in the workspace. When it loads several projects, it skips a project whose `context.md` is byte-identical to one already loaded and names the skipped copies.
 
 ## Handoff
 
@@ -86,6 +86,12 @@ It uses no tools, runs only when you type it, and leaves later replies unchanged
 `/ease:say <transcript>` turns something you dictated into one clean prompt. Alone, it uses your previous message. It asks you "Is this what you want to say?", showing the prompt and the words it had to guess as `heard → used`. Pick **Send** and Claude acts on the prompt as your message, pick **Drop** to do nothing, or type corrections and it asks again.
 
 It touches nothing until you pick Send, runs only when you type it, and never names an ease command in the prompt. When there is nothing to clean, it answers in one line.
+
+## Message
+
+`/ease:message <what it is for, and who reads it>` drafts something people will read, such as a Slack message, a handoff note for your team or an email, the way you would say it to a teammate. It puts the ask or the news first, keeps it as short as the content allows, uses plain words with no headers or bold in a chat message and one link where a link does it, and names what the reader has to check or decide instead of listing everything done.
+
+Sessions use it on their own when you ask them for a message, autopilot sessions included. It only drafts: it never sends anything, because sending in your name stays an ASK JUAN action.
 
 ## Autopilot
 
@@ -121,11 +127,19 @@ On every wake the pilot weighs the process trees of the sessions it manages and 
 
 When another live session may use the same repo, the pilot adds "build in a worktree" to a worker's goal, and it holds a PR comments order until that order's repo is free.
 
+When you ask the pilot for a message people will read, such as a Slack message, a handoff note for your team or an email, it asks the session that owns the work to draft it with `/ease:message` and brings you that draft.
+
+Each instruction you give about an order, like "make Sanity work on dev and prod" or "no clicks from me", becomes a checklist line in your words under that order in `orders.md`, as `  - [ ] <your words>`. It goes into the worker's goal, so every worker, restart and successor gets it, and a running worker gets it as a message. Before the pilot tells you an order is done, it asks the owning session to confirm each open line with evidence, pushes it to finish any line that is not met, and marks a line `[x]` only when the evidence comes back. The pilot never checks anything itself.
+
+A session's plan or ask that breaks your rules is sent back to it with the rule, logged in `decisions.md`, and kept out of the outbox. That covers asking you for a click, a check or a login when the session could do it another way, a plan to log in as you, a wall of text for people, and an estimate it cannot back. An ask reaches you only when there is truly no other way. Late in your day, or when you say you are closing the day, the pilot asks you for nothing new: it logs every item that blocks no one and adds it to the outbox at your first message of the next day.
+
+The project index, `~/ease/.ease-context/pilot/projects.md`, lists the projects a worker can start in: one entry per project in every workspace, with its workspace, its repos and a two-line summary of its `context.md`. Folders with byte-identical `context.md` files are one entry that lists the copies. The pilot writes it at start when it is missing, and "refresh the project index" rewrites it.
+
 Every pilot message fits a phone: at most 3 short lines, with no tables, headings or code blocks. Pushes go through the outbox, `outbox.json` in the pilot folder, which holds the open items for you: ASK JUAN questions and results you asked for, each in at most 14 words. Every push is exactly the composed push from `pilot/outbox.py compose`: the line `<N> need you`, then every open item numbered from 1, questions first. The pilot sends it once, at the end of a wake, and only when a new item joined the outbox, so each new item brings one push. Worker starts and restarts, finished work you did not ask about and quiet wakes send no push. Answer by number, such as `1 yes, 2 no`, or with a bare yes or no when the push has one item; the pilot acts on each answer and closes the item without a push. An item also leaves when you answer it in the session's own window, which adds an `answered: ASK JUAN <n>` entry there. Two hooks hold the pilot to this: one refuses any PushNotification that is not the composed push, and the other blocks the pilot's turn from ending while a new item is unsent. Chat replies answer what you ask, whenever you ask; you say "more" to get the details, and "how's it going?" starts with the open items. When a wake finds nothing new, the pilot sends nothing, not even after restarting its watcher.
 
 To start it, run `/ease:pilot` in a `~/ease` session in auto mode; that window becomes the pilot. In any other mode it answers in one line that the pilot needs auto mode, and starts nothing. When this window or another one is already the pilot, it answers in one line that the pilot is already running, and starts nothing. The first time, it creates `~/ease/.ease-context/pilot/` with `orders.md`, `decisions.md`, `approvals.json`, `workspaces.json`, `instructions.md` and the workers' settings file. `instructions.md` holds the pilot's push rules, and every wake re-reads it, however long the session has grown. Then the pilot starts its watcher, its hourly backstop loop and `caffeinate`, which keeps the Mac awake. Remote Control stays off until you type `/rc`; then you can reach the pilot from the Claude app. Keep the Mac plugged in with the lid open: closing the lid still puts it to sleep. `/ease:pilot stop`, typed in the pilot window, stops it in place: the watcher, the loop and `caffeinate` end, the window stays open, and the workers keep running until they end. Closing the window stops the pilot.
 
-Workers start with `claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json "/ease:autopilot <goal>"`, under `env -i`.
+Workers start with `claude --bg -n pilot-<slug> --permission-mode auto --disallowedTools AskUserQuestion --settings ~/ease/.ease-context/pilot/worker-settings.json "<prompt>"`, under `env -i`. The prompt's lines are `/ease:load-context <project>` with the project from the index, left out when none fits, then `/ease:autopilot <goal>`, then the order's checklist lines, then up to two lines of starting context from the project's entry.
 
 The pilot and every worker run with a guard, a PreToolUse hook (`pilot/guard.py`) that blocks these actions and tells the session to log them as ASK JUAN entries:
 
