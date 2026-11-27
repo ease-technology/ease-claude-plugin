@@ -241,6 +241,8 @@ def test_pilot_skill_keeps_timers():
         "set the recurring line's `last` to the `fired at` time, or comment a once line out as `# done <time>: <line>`",
         "is logged in `decisions.md` and changes nothing: no order or worker starts, and the line's `last` stays",
         "is logged in `decisions.md`, and Juan is told in one chat line.",
+        "A timer order is the `orders.md` line whose slug matches a `timers.md` line.",
+        "When its worker's last message starts `Order: done` or `Order: waiting on Juan`, the order is closed",
         "log in `decisions.md` that the run ended and how many ASK JUAN entries it wrote",
         "A run with no entries adds no outbox item and sends no push.",
         "Once added, they stay open in every composed push until answered.",

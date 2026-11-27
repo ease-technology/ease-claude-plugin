@@ -206,7 +206,7 @@ The pilot's own items use the ref `<decisions.md>#<n>`, where `<decisions.md>` i
 
 **Unreadable.** A `timer line unreadable: <line>` line is logged in `decisions.md`, and Juan is told in one chat line.
 
-**A timer order ends.** When a timer order's worker ends done, comment its order line out as `# done <YYYY-MM-DD HH:MM>: <line>` and log in `decisions.md` that the run ended and how many ASK JUAN entries it wrote. Its start and end are not chat news. Confirm before done has no open checklist lines to check. A run with no entries adds no outbox item and sends no push. Its entries reach the outbox through step 5 as they do today. Juan's rules still apply there: reject and send back lets a finding through but returns an avoidable ask, and closing the day holds non-blocking ones until his next first message. Once added, they stay open in every composed push until answered.
+**A timer order ends.** A timer order is the `orders.md` line whose slug matches a `timers.md` line. When its worker's last message starts `Order: done` or `Order: waiting on Juan`, the order is closed: comment its order line out as `# done <YYYY-MM-DD HH:MM>: <line>` and log in `decisions.md` that the run ended and how many ASK JUAN entries it wrote. Its start and end are not chat news. Confirm before done has no open checklist lines to check. A run with no entries adds no outbox item and sends no push. Its entries reach the outbox through step 5 as they do today. Juan's rules still apply there: reject and send back lets a finding through but returns an avoidable ask, and closing the day holds non-blocking ones until his next first message. Once added, they stay open in every composed push until answered.
 
 ### The pilot's own follow-ups
 
