@@ -25,6 +25,24 @@ wake never wake the pilot. The watcher keeps running through the pause, so no ta
 Each news line is appended to <dir>/inbox.txt before the snapshot is saved, so a kill between the two
 writes repeats news rather than losing it. After a poll, if inbox.txt has a line, the watcher
 prints its first line and exits 0, so a leftover inbox ends a new watcher on its first poll.
+
+Timers live in <dir>/timers.md, where a missing file counts as empty. One timer per line:
+  - [<slug>] <schedule> <workspace>: <words>
+with ` (last <YYYY-MM-DD HH:MM>)` appended on recurring lines. The schedule is `daily HH:MM`,
+`weekdays HH:MM`, `<monday..sunday> HH:MM` or `once YYYY-MM-DD HH:MM`, all in local time, and the
+workspace is a `name` in workspaces.json. Lines starting with `#` and blank lines are ignored. Any other
+line that does not match, names an unknown workspace, is recurring without `(last ...)` or holds a time
+that does not parse is unreadable. A timer's slot is its latest scheduled time at or before the poll.
+A recurring timer is due when its slot is after its last and is not the slot saved as fired for its slug;
+a once timer is due when its slot has come and is not the saved fired slot. Several missed slots
+therefore give one firing. Timer news, with <now> the poll time as YYYY-MM-DD HH:MM, is:
+  - `timer [<slug>] fired at <now>, since <last>` for a due recurring timer;
+  - `timer [<slug>] fired at <now>` for a due once timer;
+  - `timer [<slug>] skipped at <now>: its order is still open` instead, for a due recurring timer whose
+    slug has an uncommented `- [<slug>] ` line in orders.md;
+  - `timer line unreadable: <line>` once for each unreadable line.
+The snapshot keeps `timers`, each slug's last fired or skipped slot, and `unreadable`, the lines already
+reported. Timers are checked on every poll, the baseline poll included.
 """
 import argparse
 import glob
@@ -35,12 +53,19 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta
 
 PAUSE_LIMIT = 300
 ENDED = {"done", "stopped", "blocked", "failed", "waiting"}
 ORDER = re.compile(r"^- .*\(session ([0-9a-f-]{36})\)", re.M)
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 ENTRY = re.compile(r"^\d+\. \*\*(ASK JUAN|heavy: started|answered: ASK JUAN)")
+DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+TIMER = re.compile(
+    r"^- \[([^\]\s]+)\] ((?:daily|weekdays|" + "|".join(DAYS) + r"|once \d{4}-\d{2}-\d{2}) \d{1,2}:\d{2})"
+    r" ([^\s:]+): (.+?)(?: \(last (\d{4}-\d{2}-\d{2} \d{1,2}:\d{2})\))?$"
+)
+MINUTE = "%Y-%m-%d %H:%M"
 
 
 def read(path, default=""):
@@ -113,6 +138,70 @@ def poll(folder, saved, accept):
     return news, snapshot
 
 
+def slot(schedule, now):
+    """The latest time at or before `now` that `schedule` names, as a naive local datetime, or None.
+
+    Raises ValueError when a time in `schedule` does not parse."""
+    kind, clock = schedule.split(" ", 1)
+    if kind == "once":
+        at = datetime.strptime(clock, MINUTE)
+        return at if at <= now else None
+    clock = datetime.strptime(clock, "%H:%M").time()
+    for back in range(8):
+        day = now.date() - timedelta(days=back)
+        at = datetime.combine(day, clock)
+        weekday = day.weekday()
+        if at <= now and (kind == "daily" or kind == DAYS[weekday] or (kind == "weekdays" and weekday < 5)):
+            return at
+    return None
+
+
+def parse(line, names, now):
+    """One timers.md line as (slug, last, slot), with `last` None on a once timer, or None when unreadable."""
+    match = TIMER.match(line.rstrip())
+    if not match or match[3] not in names:
+        return None
+    slug, schedule, _, _, last = match.groups()
+    once = schedule.startswith("once ")
+    if not once and last is None:
+        return None
+    try:
+        return slug, None if once else datetime.strptime(last, MINUTE), slot(schedule, now)
+    except ValueError:
+        return None
+
+
+def timers(folder, saved, now):
+    """The timer news at `now`, and the new `timers` and `unreadable` state. `saved` is None for no baseline."""
+    names = {w.get("name") for w in json.loads(read(os.path.join(folder, "workspaces.json")))["workspaces"]}
+    orders = read(os.path.join(folder, "orders.md"))
+    fired = dict((saved or {}).get("timers", {}))
+    unreadable = list((saved or {}).get("unreadable", []))
+    stamp = now.strftime(MINUTE)
+    news = []
+    for line in read(os.path.join(folder, "timers.md")).splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        timer = parse(line, names, now)
+        if timer is None:
+            if line not in unreadable:
+                news.append(f"timer line unreadable: {line}")
+                unreadable.append(line)
+            continue
+        slug, last, at = timer
+        recurring = last is not None
+        if at is None or (recurring and at <= last) or fired.get(slug) == at.strftime(MINUTE):
+            continue
+        if recurring and re.search(rf"^- \[{re.escape(slug)}\] ", orders, re.M):
+            news.append(f"timer [{slug}] skipped at {stamp}: its order is still open")
+        elif recurring:
+            news.append(f"timer [{slug}] fired at {stamp}, since {last.strftime(MINUTE)}")
+        else:
+            news.append(f"timer [{slug}] fired at {stamp}")
+        fired[slug] = at.strftime(MINUTE)
+    return news, {"timers": fired, "unreadable": unreadable}
+
+
 def load_saved(path):
     """The saved snapshot, or None when it is missing or unreadable."""
     try:
@@ -155,6 +244,9 @@ def main():
             time.sleep(min(options.interval, 1))
             continue
         news, snapshot = poll(folder, saved, accept)
+        timer_news, timer_state = timers(folder, saved, datetime.now())
+        news += timer_news
+        snapshot.update(timer_state)
         held = paused(folder)
         if held is not None:
             accept |= held

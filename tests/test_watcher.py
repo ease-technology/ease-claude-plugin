@@ -1,8 +1,11 @@
+import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -37,6 +40,9 @@ class Setup:
     def orders(self, text="# Orders\n"):
         (self.dir / "orders.md").write_text(text)
 
+    def timers(self, text):
+        (self.dir / "timers.md").write_text(text)
+
     def agents(self, *sessions):
         """Each session is (sessionId, name, state)."""
         listed = [{"id": i[:8], "sessionId": i, "name": n, "state": s} for i, n, s in sessions]
@@ -63,6 +69,20 @@ class Setup:
             assert time.time() < deadline, "no snapshot saved"
             time.sleep(0.02)
         return watcher
+
+
+def minute(at):
+    return at.strftime("%Y-%m-%d %H:%M")
+
+
+def due_daily():
+    """A `daily` schedule whose slot was one minute ago, and that slot."""
+    at = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=1)
+    return f"daily {at:%H:%M}", at
+
+
+def inbox(setup):
+    return (setup.dir / "inbox.txt").read_text().splitlines()
 
 
 def append(path, line):
@@ -196,3 +216,93 @@ def test_commented_order_session_is_ignored(setup):
     assert still_running(watcher)
     setup.agents((HANDED, "Live", "waiting"), (OLD, "Old", "stopped"))
     assert finish(watcher) == f"session Live ({HANDED}) is waiting\n"
+
+
+FIRED = r"timer \[standup\] fired at \d{4}-\d{2}-\d{2} \d{2}:\d{2}"
+
+
+def test_due_daily_timer_fires_since_its_last(setup):
+    schedule, at = due_daily()
+    last = minute(at - timedelta(hours=24))
+    setup.timers(f"# Timers\n\n- [standup] {schedule} ws: run the standup (last {last})\n")
+    assert re.fullmatch(FIRED + f", since {last}\n", finish(setup.start()))
+
+
+def test_missed_runs_fire_once_and_a_restart_does_not_repeat(setup):
+    schedule, at = due_daily()
+    last = minute(at - timedelta(days=3))
+    setup.timers(f"- [standup] {schedule} ws: run the standup (last {last})\n")
+    finish(setup.start())
+    lines = inbox(setup)
+    assert len(lines) == 1 and re.fullmatch(FIRED + f", since {last}", lines[0])
+    (setup.dir / "inbox.txt").write_text("")
+    watcher = setup.start()
+    assert still_running(watcher)
+    stop(watcher)
+    assert inbox(setup) == []
+
+
+def test_once_timer_fires_once_across_a_restart(setup):
+    at = datetime.now() - timedelta(minutes=1)
+    setup.timers(f"- [launch] once {minute(at)} ws: check the launch\n")
+    assert re.fullmatch(r"timer \[launch\] fired at \d{4}-\d{2}-\d{2} \d{2}:\d{2}\n", finish(setup.start()))
+    (setup.dir / "inbox.txt").write_text("")
+    watcher = setup.start()
+    assert still_running(watcher)
+    stop(watcher)
+    assert inbox(setup) == []
+
+
+def test_commented_timer_never_fires(setup):
+    schedule, at = due_daily()
+    setup.timers(f"# - [standup] {schedule} ws: run the standup (last {minute(at - timedelta(days=1))})\n")
+    watcher = setup.start()
+    assert still_running(watcher)
+    stop(watcher)
+    assert not (setup.dir / "inbox.txt").exists()
+
+
+def test_unreadable_line_is_reported_once_and_good_timers_still_fire(setup):
+    schedule, at = due_daily()
+    last = minute(at - timedelta(days=1))
+    bad = f"- [broken] daily 25:00 ws: never (last {last})"
+    setup.timers(f"{bad}\n- [standup] {schedule} ws: run the standup (last {last})\n")
+    finish(setup.start())
+    unreadable, fired = inbox(setup)
+    assert unreadable == f"timer line unreadable: {bad}"
+    assert re.fullmatch(FIRED + f", since {last}", fired)
+    (setup.dir / "inbox.txt").write_text("")
+    watcher = setup.start()
+    assert still_running(watcher)
+    stop(watcher)
+    assert inbox(setup) == []
+
+
+def test_due_timer_with_its_order_open_is_skipped_once(setup):
+    schedule, at = due_daily()
+    setup.orders("# Orders\n- [standup] ws: run the standup\n")
+    setup.timers(f"- [standup] {schedule} ws: run the standup (last {minute(at - timedelta(days=1))})\n")
+    out = finish(setup.start())
+    assert re.fullmatch(
+        r"timer \[standup\] skipped at \d{4}-\d{2}-\d{2} \d{2}:\d{2}: its order is still open\n", out
+    )
+    (setup.dir / "inbox.txt").write_text("")
+    watcher = setup.start()
+    assert still_running(watcher)
+    stop(watcher)
+    assert inbox(setup) == []
+
+
+def load_watcher():
+    spec = importlib.util.spec_from_file_location("watcher", WATCHER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_slot_walks_back_to_the_latest_scheduled_time():
+    slot = load_watcher().slot
+    saturday, wednesday = datetime(2026, 11, 28, 12, 0), datetime(2026, 11, 25, 12, 0)
+    assert slot("weekdays 08:00", saturday) == datetime(2026, 11, 27, 8, 0)
+    assert slot("monday 08:00", wednesday) == datetime(2026, 11, 23, 8, 0)
+    assert slot("once 2026-11-29 08:00", saturday) is None
