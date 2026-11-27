@@ -218,6 +218,43 @@ def test_pilot_skill_keeps_a_project_index():
         assert term in text, term
 
 
+def test_pilot_skill_keeps_timers():
+    text = (SKILLS / "pilot" / "SKILL.md").read_text()
+    for term in (
+        "If it exists without `timers.md`, write it as `# Timers`.",
+        "- `timers.md`: one timer per line in the watcher's format, like `- [souk-slack] weekdays 08:00 souk:",
+        "A line starting with `#` is done or cancelled and never fires. The file starts as `# Timers`.",
+        "A recurring line's `last` is set to 24 hours before its first scheduled time",
+        "'In 2 hours' and similar become an absolute `once` time.",
+        "Reply in one chat line naming the slug and the next time it fires.",
+        '"Show timers"',
+        "a once timer shows 'not run yet'",
+        '"Cancel the <slug> timer"',
+        "`# cancelled <YYYY-MM-DD>: <line>`",
+        "`timer [<slug>] fired`, `timer [<slug>] skipped` or `timer line unreadable`",
+        "5. Handle every taken line: `timer` lines first, with [Timers](#timers), then [Each wake](#each-wake) runs.",
+        "## Timers",
+        "`- [<slug>] <workspace>: <goal>, since <since>. Report only what needs Juan, each as one ASK JUAN entry"
+        " with no Run: command; when nothing does, write none.`",
+        "`max_workers`, usage-limit holds, the worktree rule and the 60-second start check all apply.",
+        "a timer order has no checklist lines",
+        "set the recurring line's `last` to the `fired at` time, or comment a once line out as `# done <time>: <line>`",
+        "is logged in `decisions.md` and changes nothing: no order or worker starts, and the line's `last` stays",
+        "is logged in `decisions.md`, and Juan is told in one chat line.",
+        "A timer order is the `orders.md` line whose slug matches a `timers.md` line.",
+        "When its worker's last message starts `Order: done` or `Order: waiting on Juan`, the order is closed",
+        "log in `decisions.md` that the run ended and how many ASK JUAN entries it wrote",
+        "A run with no entries adds no outbox item and sends no push.",
+        "Once added, they stay open in every composed push until answered.",
+        "When the entry at the item's ref has no `Run:` command, a yes or a no is only logged in `decisions.md`"
+        " and the item closed: nothing goes into `approvals.json`, and no session is told or woken.",
+        "it also writes a `once` timer in that order's workspace",
+        "`unpause order <slug>` or `restart order <slug>`",
+        "Workers never write timers.",
+    ):
+        assert term in text, term
+
+
 def test_message_skill_names_its_rules():
     path = SKILLS / "message" / "SKILL.md"
     assert field(frontmatter(path), "disable-model-invocation") is None
